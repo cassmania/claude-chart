@@ -306,7 +306,7 @@ class ChartInstance {
           <span>O:<b class="i-O">--</b></span>
           <span>H:<b class="i-H" style="color:var(--green)">--</b></span>
           <span>L:<b class="i-L" style="color:var(--red)">--</b></span>
-          <span>C:<b class="i-C">--</b></span>
+          <span>C:<b class="i-C" style="color:var(--green); font-weight:900;">--</b></span>
           <span>RSI:<b class="i-R">--</b></span>
           <span>펀딩비:<b class="i-F" style="color:var(--gold)">--</b></span>
         </div>
@@ -515,8 +515,7 @@ class ChartInstance {
     const wm = this.el.querySelector(`#wm-${this.idx}`);
     if(wm) {
       wm.textContent = `${this.sym} ${c.close.toFixed(d)}`;
-      const isUp = c.close >= c.open;
-      wm.style.color = isUp ? 'rgba(246, 70, 93, 0.15)' : 'rgba(78, 127, 247, 0.15)';
+      wm.style.color = 'rgba(246, 70, 93, 0.25)'; // Always red (upbit style) and slightly more visible
     }
   }
 }
