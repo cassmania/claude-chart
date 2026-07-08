@@ -512,9 +512,10 @@ class ChartInstance {
     this.el.querySelector('.i-L').textContent=c.low.toFixed(d);
     this.el.querySelector('.i-C').textContent=c.close.toFixed(d);
     
+    const latestC = this.candles.at(-1);
     const wm = this.el.querySelector(`#wm-${this.idx}`);
-    if(wm) {
-      wm.textContent = `${this.sym} ${c.close.toFixed(d)}`;
+    if(wm && latestC) {
+      wm.textContent = `${this.sym} ${latestC.close.toFixed(d)}`;
       wm.style.color = '#f6465d'; // Solid red at the top
     }
   }
