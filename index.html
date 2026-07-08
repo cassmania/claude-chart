@@ -120,7 +120,7 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:'Inter'
     </select>
     
     <label style="color:var(--text);font-size:12px;display:flex;align-items:center;gap:4px;cursor:pointer;margin-left:10px;font-weight:600;">
-      <input type="checkbox" id="autoAiCheck" onchange="toggleAutoAi()" checked> 실시간 자동 분석 (3분)
+      <input type="checkbox" id="autoAiCheck" onchange="toggleAutoAi()" checked> 실시간 자동 분석 (1초)
     </label>
     
     <div class="spacer"></div>
@@ -191,7 +191,7 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:'Inter'
         </div>
       </div>
       <div class="ai-ftr">
-        <button class="run-ai-btn" id="runAiBtn" onclick="runManualAnalysis()">⚡ 정밀 분석 수동 갱신</button>
+        <button class="run-ai-btn" id="runAiBtn" onclick="runManualAnalysis()">⚡ 정밀 분석 자동 갱신 (1초)</button>
       </div>
     </div>
 
@@ -645,9 +645,9 @@ window.addEventListener('resize', ()=>charts.forEach(c=>c.resize()));
 function toggleAutoAi() {
   const isAuto = document.getElementById('autoAiCheck').checked;
   if(isAuto) {
-    showToast('✅ 실시간 자동 분석 시작 (3분 주기)');
+    showToast('✅ 실시간 자동 분석 시작 (1초 주기)');
     runLocalAnalysis();
-    autoAiTimer = setInterval(runLocalAnalysis, 3 * 60 * 1000); // 3 mins
+    autoAiTimer = setInterval(runLocalAnalysis, 1000); // 1 second
   } else {
     showToast('중지됨: 실시간 자동 분석');
     if(autoAiTimer) clearInterval(autoAiTimer);
@@ -663,7 +663,7 @@ function runManualAnalysis() {
   // 가상의 로딩/심층 데이터 수집 시간 제공 후 갱신 (시각적 업그레이드)
   setTimeout(() => {
     runLocalAnalysis();
-    btn.innerHTML = '⚡ 정밀 분석 수동 갱신';
+    btn.innerHTML = '⚡ 정밀 분석 자동 갱신 (1초)';
     btn.style.opacity = '1';
     btn.style.pointerEvents = 'auto';
     showToast('✅ 딥 다이브 정밀 분석이 완료되었습니다.');
