@@ -53,7 +53,7 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:'Inter'
 .chart-cell{display:flex;flex-direction:column;background:var(--bg);position:relative;overflow:hidden;border:2px solid transparent;transition:border-color 0.2s;}
 .chart-cell.active{border-color:var(--gold);z-index:2;}
 .chart-cell.expanded{position:absolute;inset:2px;z-index:50;border:2px solid var(--purple);}
-.watermark-price{position:absolute;top:40%;left:50%;transform:translate(-50%,-50%);font-size:42px;font-weight:900;z-index:10;pointer-events:none;display:none;white-space:nowrap;letter-spacing:-1px;}
+.watermark-price{position:absolute;top:8%;left:50%;transform:translate(-50%,0);font-size:42px;font-weight:900;z-index:10;pointer-events:none;display:none;white-space:nowrap;letter-spacing:-1px;}
 .chart-cell.active .watermark-price{display:block;}
 
 .cell-header{display:flex;align-items:center;gap:5px;padding:4px 6px;background:var(--bg2);border-bottom:1px solid var(--border);font-size:11px;}
@@ -75,7 +75,7 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:'Inter'
 .loading-overlay{position:absolute;inset:0;background:rgba(255,255,255,0.7);display:flex;align-items:center;justify-content:center;font-size:12px;color:var(--gold);z-index:20;pointer-events:none;}
 
 /* AI Panel (Left) */
-.side-panel{width:360px;background:var(--bg2);border-right:1px solid var(--border);z-index:100;display:flex;flex-direction:column;flex-shrink:0;box-shadow:1px 0 3px rgba(0,0,0,0.05);}
+.side-panel{width:400px;background:var(--bg2);border-right:1px solid var(--border);z-index:100;display:flex;flex-direction:column;flex-shrink:0;box-shadow:1px 0 3px rgba(0,0,0,0.05);}
 .ph{display:flex;align-items:center;justify-content:space-between;padding:11px 13px;border-bottom:1px solid var(--border);flex-shrink:0;background:var(--bg);}
 .pt{font-size:14px;font-weight:700;color:var(--gold);}
 .pc{background:none;border:none;color:var(--text2);cursor:pointer;font-size:16px;}
@@ -647,27 +647,27 @@ function runLocalAnalysis(idx = null) {
   
   const msg = `
     <div style="margin-bottom:10px;">
-      <strong style="color:var(--gold); font-size:14px;">[${c.sym} ${c.tf}] 실시간 매매 신호</strong><br>
-      현재가: ${close.toFixed(dp)}
+      <strong style="color:var(--gold); font-size:15px;">[${c.sym} ${c.tf}] 실시간 매매 신호</strong><br>
+      <span style="color:var(--orange); font-weight:bold;">현재가:</span> <span style="color:var(--text); font-weight:bold;">${close.toFixed(dp)}</span>
     </div>
     <div style="background:var(--bg3); padding:8px; border-radius:4px; margin-bottom:8px;">
-      <b style="color:var(--text2);">1. 📈 기술적 추세 평가</b><br>
+      <b style="color:var(--blue);">1. 📈 기술적 추세 평가</b><br>
       - 추세: <span style="color:${trendColor};font-weight:600;">${trend}</span><br>
       - RSI: <span style="color:${rsiColor};font-weight:600;">${rsiValText} (${rsiStr})</span>
     </div>
     <div style="background:var(--bg3); padding:8px; border-radius:4px; margin-bottom:8px;">
-      <b style="color:var(--text2);">2. 🎯 지지/저항 시나리오</b><br>
-      - 저항선: R1(${r1.toFixed(dp)}), R2(${r2.toFixed(dp)}), R3(${r3.toFixed(dp)})<br>
-      - 지지선: S1(${s1.toFixed(dp)}), S2(${s2.toFixed(dp)}), S3(${s3.toFixed(dp)})<br>
-      - 현재 피벗(${pivot.toFixed(dp)}) 기준 <strong style="color:${close > pivot ? 'var(--green)' : 'var(--red)'}">${close > pivot ? '상단(강세)' : '하단(약세)'}</strong>
+      <b style="color:var(--orange);">2. 🎯 지지/저항 시나리오</b><br>
+      - 저항선: <span style="color:var(--red); font-weight:bold;">R1(${r1.toFixed(dp)}), R2(${r2.toFixed(dp)}), R3(${r3.toFixed(dp)})</span><br>
+      - 지지선: <span style="color:var(--blue); font-weight:bold;">S1(${s1.toFixed(dp)}), S2(${s2.toFixed(dp)}), S3(${s3.toFixed(dp)})</span><br>
+      - 현재 피벗(<span style="color:var(--gold);">${pivot.toFixed(dp)}</span>) 기준 <strong style="color:${close > pivot ? 'var(--green)' : 'var(--red)'}">${close > pivot ? '상단(강세)' : '하단(약세)'}</strong>
     </div>
     <div style="background:var(--bg3); padding:8px; border-radius:4px; margin-bottom:8px;">
-      <b style="color:var(--text2);">3. 🔥 파생/온체인 지표</b><br>
-      - 펀딩비율: <span style="color:var(--gold);font-weight:600;">${c.frValue.toFixed(4)}%</span><br>
+      <b style="color:var(--gold);">3. 🔥 파생/온체인 지표</b><br>
+      - 펀딩비율: <span style="color:var(--red);font-weight:600;">${c.frValue.toFixed(4)}%</span><br>
       - 미결제약정(OI): <span style="color:var(--blue);font-weight:600;">${c.oiValue}</span>
     </div>
     <div style="background:var(--bg3); padding:8px; border-radius:4px;">
-      <b style="color:var(--text2);">4. 🎮 알고리즘 전략 추천</b><br>
+      <b style="color:var(--red);">4. 🎮 알고리즘 전략 추천</b><br>
       <div style="font-size:14px; font-weight:bold; color:${posColor}; margin-top:4px;">
         추천 포지션: ${pos}
       </div>
