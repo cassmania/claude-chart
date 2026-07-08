@@ -174,11 +174,18 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:'Inter'
             </ul>
           </div>
           <div style="margin-top:10px;">
-            <h4 style="color:var(--text);margin-bottom:5px;font-size:12px;">💵 실시간 달러 인덱스 (DXY)</h4>
-            <div style="height:180px;overflow:hidden;border:1px solid var(--border);border-radius:4px;">
-              <script type="text/javascript" src="https://s3.tradingview.com/external-embedding/embed-widget-mini-symbol-overview.js" async>
-              { "symbol": "TVC:DXY", "width": "100%", "height": "100%", "locale": "kr", "dateRange": "1M", "colorTheme": "light", "isTransparent": true }
-              </script>
+            <h4 style="color:var(--text);margin-bottom:5px;font-size:12px;">💵 실시간 매크로 & 자금 흐름</h4>
+            <div style="display:flex; gap:5px; height:180px;">
+              <div style="flex:1; overflow:hidden; border:1px solid var(--border); border-radius:4px;">
+                <script type="text/javascript" src="https://s3.tradingview.com/external-embedding/embed-widget-mini-symbol-overview.js" async>
+                { "symbol": "TVC:DXY", "width": "100%", "height": "100%", "locale": "kr", "dateRange": "1M", "colorTheme": "light", "isTransparent": true }
+                </script>
+              </div>
+              <div style="flex:1; overflow:hidden; border:1px solid var(--border); border-radius:4px;">
+                <script type="text/javascript" src="https://s3.tradingview.com/external-embedding/embed-widget-mini-symbol-overview.js" async>
+                { "symbol": "CRYPTOCAP:USDT.D", "width": "100%", "height": "100%", "locale": "kr", "dateRange": "1M", "colorTheme": "light", "isTransparent": true }
+                </script>
+              </div>
             </div>
           </div>
         </div>
@@ -348,6 +355,12 @@ class ChartInstance {
     this.ma20 = this.MC.addLineSeries({color:'#f0a500',lineWidth:2,priceLineVisible:false,lastValueVisible:false});
     this.ma60 = this.MC.addLineSeries({color:'#4e7ff7',lineWidth:2,priceLineVisible:false,lastValueVisible:false});
     this.ma120 = this.MC.addLineSeries({color:'#f6465d',lineWidth:2,priceLineVisible:false,lastValueVisible:false});
+    this.ma200 = this.MC.addLineSeries({color:'#9b59b6',lineWidth:2,priceLineVisible:false,lastValueVisible:false});
+    
+    this.bbU = this.MC.addLineSeries({color:'rgba(0,212,255,0.3)',lineWidth:1,priceLineVisible:false,lastValueVisible:false});
+    this.bbL = this.MC.addLineSeries({color:'rgba(0,212,255,0.3)',lineWidth:1,priceLineVisible:false,lastValueVisible:false});
+    this.vwapS = this.MC.addLineSeries({color:'#ff8c42',lineWidth:1,lineStyle:2,priceLineVisible:false,lastValueVisible:false});
+    this.superTS = this.MC.addLineSeries({color:'#00d4ff',lineWidth:2,lineStyle:1,priceLineVisible:false,lastValueVisible:false});
     
     const sub = {...base, timeScale:{...base.timeScale, visible:false}};
     this.RC = LightweightCharts.createChart(this.el.querySelector('#rc-'+this.idx), sub);
@@ -428,7 +441,45 @@ class ChartInstance {
     if(!this.candles.length) return;
     this.CS.setData(this.candles.map(c=>({time:c.time,open:c.open,high:c.high,low:c.low,close:c.close})));
     const c = this.candles.map(x=>x.close), t = this.candles.map(x=>x.time);
-    this.ma20.setData(toD(ma(c,20),t)); this.ma60.setData(toD(ma(c,60),t)); this.ma120.setData(toD(ma(c,120),t));
+    this.ma20.setData(toD(ma(c,20),t)); this.ma60.setData(toD(ma(c,60),t)); this.ma120.setData(toD(ma(c,120),t)); this.ma200.setData(toD(ma(c,200),t));
+    
+    const p20=20, bb_u=[], bb_l=[];
+    for(let i=0; i<c.length; i++){
+      if(i<p20-1) { bb_u.push(null); bb_l.push(null); continue; }
+      const slice=c.slice(i-p20+1,i+1), m=slice.reduce((a,b)=>a+b,0)/p20, varS=slice.reduce((a,b)=>a+Math.pow(b-m,2),0)/p20, std=Math.sqrt(varS);
+      bb_u.push(m+2*std); bb_l.push(m-2*std);
+    }
+    this.bbU.setData(toD(bb_u,t)); this.bbL.setData(toD(bb_l,t));
+    
+    const vwapData = []; let cumVol=0, cumTP=0, lastDay=-1;
+    this.candles.forEach(cd => {
+      const day = new Date(cd.time*1000).getUTCDate();
+      if(day !== lastDay) { cumVol=0; cumTP=0; lastDay=day; }
+      const tp = (cd.high+cd.low+cd.close)/3;
+      cumTP += tp*cd.volume; cumVol += cd.volume;
+      vwapData.push(cumVol ? (cumTP/cumVol) : tp);
+    });
+    this.vwapS.setData(toD(vwapData,t));
+    
+    const stData=[], multiplier=3, period=10;
+    let prevUpper=0, prevLower=0, prevDir=1, prevClose=c[0], trs=[], atrs=[];
+    for(let i=0; i<this.candles.length; i++){
+      const cd=this.candles[i];
+      const tr=i===0 ? cd.high-cd.low : Math.max(cd.high-cd.low, Math.abs(cd.high-prevClose), Math.abs(cd.low-prevClose));
+      trs.push(tr);
+      const atr=i<period ? trs.reduce((a,b)=>a+b)/trs.length : (atrs[i-1]*(period-1)+tr)/period;
+      atrs.push(atr); prevClose = cd.close;
+      if(i===0) { stData.push(null); continue; }
+      const hl2=(cd.high+cd.low)/2;
+      let upper=hl2+multiplier*atr, lower=hl2-multiplier*atr;
+      let dir=prevDir;
+      if(upper < prevUpper || this.candles[i-1].close > prevUpper) upper = upper; else upper = prevUpper;
+      if(lower > prevLower || this.candles[i-1].close < prevLower) lower = lower; else lower = prevLower;
+      if(dir===1 && cd.close < lower) dir = -1; else if(dir===-1 && cd.close > upper) dir = 1;
+      stData.push({time:cd.time, value:dir===1?lower:upper});
+      prevUpper=upper; prevLower=lower; prevDir=dir;
+    }
+    this.superTS.setData(stData.filter(x=>x!=null));
     
     // RSI
     const p=14;
@@ -468,15 +519,29 @@ class ChartInstance {
     const s3=ls.at(-1)-2*(hs.at(-1)-pivot);
     
     const levels=[
-      {lbl:'R3', p:r3, t:'res'},{lbl:'R2', p:r2, t:'res'},{lbl:'R1', p:r1, t:'res'},
-      {lbl:'P', p:pivot, t:'vpvr'},
-      {lbl:'S1', p:s1, t:'sup'},{lbl:'S2', p:s2, t:'sup'},{lbl:'S3', p:s3, t:'sup'}
+      {lbl:'저항3(R3)', p:r3, t:'res'},{lbl:'저항2(R2)', p:r2, t:'res'},{lbl:'저항1(R1)', p:r1, t:'res'},
+      {lbl:'피봇(P)', p:pivot, t:'vpvr'},
+      {lbl:'지지1(S1)', p:s1, t:'sup'},{lbl:'지지2(S2)', p:s2, t:'sup'},{lbl:'지지3(S3)', p:s3, t:'sup'}
     ];
     levels.forEach(l=>{
       if(l.p && !isNaN(l.p)) {
         this.srLines.push(this.CS.createPriceLine({
-          price:l.p, color:l.t==='res'?'rgba(246,70,93,.8)':l.t==='sup'?'rgba(78,127,247,.8)':'rgba(212,175,55,.9)',
+          price:l.p, color:l.t==='res'?'rgba(246,70,93,.7)':l.t==='sup'?'rgba(78,127,247,.7)':'rgba(212,175,55,.8)',
           lineWidth:2, lineStyle:0, axisLabelVisible:true, title:l.lbl
+        }));
+      }
+    });
+    
+    // 피보나치 되돌림
+    const diff = mH - mL;
+    const fibs = [
+      {lbl:'Fib 0.0', p:mH}, {lbl:'Fib 0.236', p:mH - diff*0.236}, {lbl:'Fib 0.382', p:mH - diff*0.382},
+      {lbl:'Fib 0.5', p:mH - diff*0.5}, {lbl:'Fib 0.618', p:mH - diff*0.618}, {lbl:'Fib 0.786', p:mH - diff*0.786}, {lbl:'Fib 1.0', p:mL}
+    ];
+    fibs.forEach(l=>{
+      if(l.p && !isNaN(l.p)) {
+        this.srLines.push(this.CS.createPriceLine({
+          price:l.p, color:'rgba(150,150,150,0.6)', lineWidth:1, lineStyle:3, axisLabelVisible:true, title:l.lbl
         }));
       }
     });
