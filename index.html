@@ -53,7 +53,7 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:'Inter'
 .chart-cell{display:flex;flex-direction:column;background:var(--bg);position:relative;overflow:hidden;border:2px solid transparent;transition:border-color 0.2s;}
 .chart-cell.active{border-color:var(--gold);z-index:2;}
 .chart-cell.expanded{position:absolute;inset:2px;z-index:50;border:2px solid var(--purple);}
-.watermark-price{position:absolute;top:8%;left:50%;transform:translate(-50%,0);font-size:42px;font-weight:900;z-index:10;pointer-events:none;display:none;white-space:nowrap;letter-spacing:-1px;}
+.watermark-price{position:absolute;top:10px;left:50%;transform:translate(-50%,0);font-size:26px;font-weight:900;color:#f6465d;z-index:10;pointer-events:none;display:none;white-space:nowrap;letter-spacing:-1px;}
 .chart-cell.active .watermark-price{display:block;}
 
 .cell-header{display:flex;align-items:center;gap:5px;padding:4px 6px;background:var(--bg2);border-bottom:1px solid var(--border);font-size:11px;}
@@ -515,7 +515,7 @@ class ChartInstance {
     const wm = this.el.querySelector(`#wm-${this.idx}`);
     if(wm) {
       wm.textContent = `${this.sym} ${c.close.toFixed(d)}`;
-      wm.style.color = 'rgba(246, 70, 93, 0.25)'; // Always red (upbit style) and slightly more visible
+      wm.style.color = '#f6465d'; // Solid red at the top
     }
   }
 }
