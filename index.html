@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>제미나이 차트 v12.0 (활성 차트 워터마크 가격 표시)</title>
 <script src="https://unpkg.com/lightweight-charts@4.1.3/dist/lightweight-charts.standalone.production.js"></script>
+<script src="level_analyzer.js?v=1.0.0" charset="utf-8"></script>
 <style>
 :root{
   --bg:#ffffff;
@@ -727,13 +728,17 @@ function runLocalAnalysis(idx = null) {
       - 지지선: <span style="color:var(--blue); font-weight:bold;">S1(${s1.toFixed(dp)}), S2(${s2.toFixed(dp)}), S3(${s3.toFixed(dp)})</span><br>
       - 현재 피벗(<span style="color:var(--gold);">${pivot.toFixed(dp)}</span>) 기준 <strong style="color:${close > pivot ? 'var(--green)' : 'var(--red)'}">${close > pivot ? '상단(강세)' : '하단(약세)'}</strong>
     </div>
+    <div id="mtfLevels" style="background:var(--bg3); padding:8px; border-radius:4px; margin-bottom:8px;">
+      <b style="color:var(--orange);">3. 🧱 다중 타임프레임 매물대</b><br>
+      <span style="color:var(--text2);">1h/4h/12h/1d 겹침 계산 중...</span>
+    </div>
     <div style="background:var(--bg3); padding:8px; border-radius:4px; margin-bottom:8px;">
-      <b style="color:var(--gold);">3. 🔥 파생/온체인 지표</b><br>
+      <b style="color:var(--gold);">4. 🔥 파생/온체인 지표</b><br>
       - 펀딩비율: <span style="color:var(--red);font-weight:600;">${c.frValue.toFixed(4)}%</span><br>
       - 미결제약정(OI): <span style="color:var(--blue);font-weight:600;">${c.oiValue}</span>
     </div>
     <div style="background:var(--bg3); padding:8px; border-radius:4px;">
-      <b style="color:var(--red);">4. 🎮 알고리즘 전략 추천</b><br>
+      <b style="color:var(--red);">5. 🎮 알고리즘 전략 추천</b><br>
       <div style="font-size:14px; font-weight:bold; color:${posColor}; margin-top:4px;">
         추천 포지션: ${pos}
       </div>
@@ -745,6 +750,100 @@ function runLocalAnalysis(idx = null) {
   div.className='ai-msg res';
   div.innerHTML=msg;
   target.appendChild(div);
+
+  // 다중 타임프레임 매물대는 봉 4개를 따로 받아야 해서 비동기다. 위 렌더를 막지 않는다.
+  renderMtfLevels(c);
+}
+
+// --- 다중 타임프레임 지지·저항 (coin-ta-brief 스킬 방법론) ---
+// 위 피벗(R1~R3/S1~S3)은 마지막 캔들 1개만 본다. 1시간봉이면 최근 1시간이 전부다.
+// 여기서는 1h/4h/12h/1d의 매물대·스윙·피보를 겹쳐 두꺼운 벽을 찾는다.
+const mtf캐시 = { key:null, data:null, ts:0, 진행중:false };
+
+async function mtf캔들(symFormat, interval) {
+  try {
+    const r = await fetch(`${BNAPI}/klines?symbol=${symFormat}&interval=${interval}&limit=200`);
+    if(!r.ok) return null;
+    const d = await r.json();
+    if(!Array.isArray(d) || d.length < 20) return null;
+    return d.map(k=>({high:+k[2], low:+k[3], close:+k[4], volume:+k[5]}));
+  } catch(e) { return null; }
+}
+
+async function renderMtfLevels(c) {
+  const box = document.getElementById('mtfLevels');
+  if(!box) return;
+  if(typeof LevelEngine === 'undefined') {
+    box.innerHTML = '<b style="color:var(--orange);">3. 🧱 다중 타임프레임 매물대</b><br><span style="color:var(--text2);">엔진을 불러오지 못했습니다.</span>';
+    return;
+  }
+
+  const symFormat = c.sym.replace('/','').toUpperCase();
+  const price = c.candles.at(-1)?.close;
+  if(!(price > 0)) return;
+
+  // 5분 캐시. 자동 분석이 1초 주기라 캐시가 없으면 초당 4회씩 바이낸스를 때린다.
+  const now = Date.now();
+  if(mtf캐시.key !== symFormat || now - mtf캐시.ts > 300000) {
+    if(mtf캐시.진행중) return;
+    mtf캐시.진행중 = true;
+    try {
+      const tfs = ['1h','4h','12h','1d'];
+      const got = await Promise.all(tfs.map(t=>mtf캔들(symFormat, t)));
+      const pack = {};
+      tfs.forEach((t,i)=>{ if(got[i]) pack[t] = got[i]; });
+      if(!Object.keys(pack).length) {
+        box.innerHTML = '<b style="color:var(--orange);">3. 🧱 다중 타임프레임 매물대</b><br><span style="color:var(--text2);">캔들 조회 실패. 잠시 후 자동 재시도합니다.</span>';
+        mtf캐시.진행중 = false;
+        return;
+      }
+      mtf캐시.key = symFormat; mtf캐시.data = pack; mtf캐시.ts = now;
+    } catch(e) {
+      mtf캐시.진행중 = false;
+      return;
+    }
+    mtf캐시.진행중 = false;
+  }
+
+  const r = LevelEngine.analyze(mtf캐시.data, price, {limit:4});
+  if(r.error) {
+    box.innerHTML = `<b style="color:var(--orange);">3. 🧱 다중 타임프레임 매물대</b><br><span style="color:var(--text2);">${r.error}</span>`;
+    return;
+  }
+  window.지지저항결과 = r;
+
+  const dp = c.dp();
+  const f = v => Number(v).toFixed(dp);
+  // 이 테마는 --red 가 파랑(하락), --green 이 빨강(상승)이다. 기존 코드 관례를 따른다.
+  const 저항색 = 'var(--red)', 지지색 = 'var(--green)';
+  const 강도색 = n => n >= 4 ? 'var(--gold)' : n === 3 ? 'var(--orange)' : n === 2 ? 'var(--yellow)' : 'var(--text2)';
+
+  const 행 = (x, col) => `<div style="display:flex; justify-content:space-between; gap:6px; padding:1px 0;">
+      <span style="color:${col}; font-weight:bold; white-space:nowrap;">${f(x.price)}</span>
+      <span style="color:var(--text2); font-size:11px; flex:1; text-align:right; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${x.reason}</span>
+      <span style="color:${강도색(x.tfCount)}; font-size:11px; font-weight:bold; white-space:nowrap;">${x.strength.label}</span>
+    </div>`;
+
+  const 저항HTML = r.resistance.length ? r.resistance.map(x=>행(x,저항색)).join('')
+    : `<div style="color:var(--yellow);">전 구간 최고 위 — 저항 공백</div>`;
+  const 지지HTML = r.support.length ? r.support.map(x=>행(x,지지색)).join('')
+    : `<div style="color:var(--yellow);">전 구간 최저 아래 — 지지 공백</div>`;
+
+  const 마지노 = r.마지노선
+    ? `<div style="margin-top:4px; padding-top:4px; border-top:1px solid rgba(0,0,0,0.08);">
+         마지노선 <span style="color:var(--gold); font-weight:bold;">${f(r.마지노선.price)}</span>
+         <span style="color:var(--text2); font-size:11px;">(${r.마지노선.tf} 최저 · ${(((price-r.마지노선.price)/price)*100).toFixed(1)}% 아래) — 이탈 시 지지 공백</span>
+       </div>` : '';
+
+  const 경고 = r.경고.length
+    ? `<div style="color:var(--yellow); font-size:11px; margin-top:3px;">${r.경고.map(w=>'⚠ '+w).join('<br>')}</div>` : '';
+
+  box.innerHTML = `<b style="color:var(--orange);">3. 🧱 다중 타임프레임 매물대</b>
+    <span style="color:var(--text2); font-size:11px;">(${r.사용봉.map(u=>u.tf).join('/')} 겹침)</span><br>
+    <div style="margin-top:3px;">${저항HTML}</div>
+    <div style="margin:3px 0; border-top:1px dashed rgba(0,0,0,0.12);"></div>
+    <div>${지지HTML}</div>
+    ${마지노}${경고}`;
 }
 
 // Init
