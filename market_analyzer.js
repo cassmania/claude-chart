@@ -1,11 +1,28 @@
 /**
- * market_analyzer.js — 코인분석스킬 3.1 핵심 판정 엔진
+ * market_analyzer.js — 코인분석스킬 3.2 핵심 판정 엔진
  *
  * 브라우저에서 받은 OHLCV만 사용하며, 마지막 진행 중 봉은 기본적으로 제외한다.
  * 계산할 수 없는 값은 null로 남겨 화면에서 "현재 실시간 데이터 확인 불가"로 표시한다.
  */
 (function (global) {
   "use strict";
+
+  /**
+   * 2021-08-17~2026-08-17 BTC 교차 거래소 워크포워드 검증 결과.
+   * 방향 적중률은 개선됐지만 비용 반영 기대값이 음수여서 매매 신호로 채택하지 않았다.
+   */
+  var CALIBRATION = {
+    version: "BTC-5Y-20260817",
+    asset: "BTC",
+    horizon: "12h",
+    binanceTestAccuracyPct: 56.37,
+    binanceTestWilson95Pct: [50.84, 61.75],
+    mexcAllAccuracyPct: 53.02,
+    mexcAllWilson95Pct: [50.54, 55.50],
+    binanceNetExpectancyPct: -0.103,
+    mexcNetExpectancyPct: -0.226,
+    actionable: false
+  };
 
   function 숫자(v) { return typeof v === "number" && isFinite(v); }
 
@@ -259,7 +276,8 @@
     return { price: price, long: long, short: short, wait: "발동 조건 전에는 관망" };
   }
 
-  function 종합(tfCandles, levels, price) {
+  function 종합(tfCandles, levels, price, opt) {
+    opt = opt || {};
     var order = ["1d", "12h", "4h", "1h"], frames = {};
     order.forEach(function (tf) {
       if (tfCandles && tfCandles[tf]) frames[tf] = 단일분석(tfCandles[tf]);
@@ -267,12 +285,34 @@
     var valid = Object.keys(frames).map(function (tf) { return frames[tf]; }).filter(function (x) { return !x.error; });
     var bull = valid.filter(function (x) { return x.direction === "강세"; }).length;
     var bear = valid.filter(function (x) { return x.direction === "약세"; }).length;
-    var bias = bull >= 3 ? "강세 우세" : bear >= 3 ? "약세 우세" : "상하위 봉 혼조 — 관망 우선";
-    return { frames: frames, bias: bias, scenarios: 시나리오(levels, price) };
+    var bias = bull >= 3 ? "강세 우세" : bear >= 3 ? "약세 우세" : "상하위 봉 혼조";
+    var symbol = String(opt.symbol || "").replace("/", "").toUpperCase();
+    var isBtc = symbol === "BTCUSDT" || symbol === "BTC_USDT" || symbol === "BTC";
+    var prediction = isBtc ? {
+      status: "관망",
+      actionable: false,
+      horizon: "12H",
+      reason: "5년 교차 검증에서 방향 적중률은 개선됐지만 수수료·슬리피지 반영 기대값이 음수여서 매매 전망으로 채택하지 않음",
+      calibration: CALIBRATION
+    } : {
+      status: "관망",
+      actionable: false,
+      horizon: null,
+      reason: "이 종목에 대한 분리된 워크포워드·거래비용 검증이 없어 방향 전망을 만들지 않음",
+      calibration: null
+    };
+    return {
+      frames: frames,
+      bias: bias,
+      trendState: bias,
+      prediction: prediction,
+      scenarios: 시나리오(levels, price)
+    };
   }
 
   global.MarketAnalyzer = {
-    VERSION: "3.1.0",
+    VERSION: "3.2.0",
+    CALIBRATION: CALIBRATION,
     confirmedCandles: 확정봉,
     rsi: rsi,
     adx: adx,

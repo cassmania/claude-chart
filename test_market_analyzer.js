@@ -122,4 +122,27 @@ console.log('\n[4] 시간봉 통합과 시나리오');
   assert.ok(result.scenarios.wait.includes('관망'));
 });
 
+검증('BTC는 비용 반영 검증 미통과로 전망을 관망 처리한다', () => {
+  const pack = {
+    '1h': 캔들(250, 1), '4h': 캔들(250, 1),
+    '12h': 캔들(250, 1), '1d': 캔들(250, 1)
+  };
+  const levels = {
+    resistance: [{ price: 300 }, { price: 320 }],
+    support: [{ price: 260 }, { price: 240 }]
+  };
+  const result = MarketAnalyzer.analyze(pack, levels, 280, { symbol: 'BTCUSDT' });
+  assert.strictEqual(result.trendState, '강세 우세');
+  assert.strictEqual(result.prediction.status, '관망');
+  assert.strictEqual(result.prediction.actionable, false);
+  assert.ok(result.prediction.reason.includes('기대값이 음수'));
+});
+
+검증('미검증 종목은 백테스트 승률을 일반화하지 않는다', () => {
+  const pack = { '1h': 캔들(250, 1), '4h': 캔들(250, 1), '12h': 캔들(250, 1), '1d': 캔들(250, 1) };
+  const result = MarketAnalyzer.analyze(pack, { error: '레벨 없음' }, 280, { symbol: 'ETHUSDT' });
+  assert.strictEqual(result.prediction.status, '관망');
+  assert.strictEqual(result.prediction.calibration, null);
+});
+
 console.log(`\n총 ${통과}개 검증 통과${process.exitCode ? ' (실패 있음)' : ''}\n`);

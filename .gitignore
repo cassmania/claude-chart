@@ -2,3 +2,5 @@
 backups/
 .browser-test*/
 browser-v31.png
+backtest_data/
+backtest_results/*.json

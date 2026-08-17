@@ -3,10 +3,10 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>제미나이 차트 v13.0 (코인분석스킬 3.1 통합)</title>
+<title>제미나이 차트 v14.0 (코인분석스킬 3.2 검증 게이트)</title>
 <script src="https://unpkg.com/lightweight-charts@4.1.3/dist/lightweight-charts.standalone.production.js"></script>
 <script src="level_analyzer.js?v=1.0.0" charset="utf-8"></script>
-<script src="market_analyzer.js?v=3.1.0" charset="utf-8"></script>
+<script src="market_analyzer.js?v=3.2.0" charset="utf-8"></script>
 <style>
 :root{
   --bg:#ffffff;
@@ -99,7 +99,7 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:'Inter'
 <body>
 <div class="app">
   <div class="topbar">
-    <div class="logo">제미나이<span> v13</span></div>
+    <div class="logo">제미나이<span> v14</span></div>
     
     <div class="search-box" style="margin-left:10px;">
       <input type="text" id="coinSearch" class="search-input" placeholder="코인 검색(BTC)" onkeydown="if(event.key==='Enter') searchCoin()">
@@ -716,7 +716,7 @@ function runLocalAnalysis(idx = null) {
   
   const msg = `
     <div style="margin-bottom:10px;">
-      <strong style="color:var(--gold); font-size:15px;">[${c.sym} ${c.tf}] 실시간 매매 신호</strong><br>
+      <strong style="color:var(--gold); font-size:15px;">[${c.sym} ${c.tf}] 실시간 기술 상태</strong><br>
       <span style="color:var(--orange); font-weight:bold;">현재가:</span> <span style="color:var(--text); font-weight:bold;">${close.toFixed(dp)}</span>
     </div>
     <div style="background:var(--bg3); padding:8px; border-radius:4px; margin-bottom:8px;">
@@ -735,7 +735,7 @@ function runLocalAnalysis(idx = null) {
       <span style="color:var(--text2);">1h/4h/12h/1d 겹침 계산 중...</span>
     </div>
     <div id="masterAnalysis" style="background:var(--bg3); padding:8px; border-radius:4px; margin-bottom:8px;">
-      <b style="color:var(--gold);">4. 🧭 코인분석스킬 3.1 통합 판정</b><br>
+      <b style="color:var(--gold);">4. 🧭 코인분석스킬 3.2 검증 판정</b><br>
       <span style="color:var(--text2);">확정 봉 기준 ADX·시장 구조·FVG·양방향 시나리오 계산 중...</span>
     </div>
     <div style="background:var(--bg3); padding:8px; border-radius:4px; margin-bottom:8px;">
@@ -859,7 +859,7 @@ async function renderMtfLevels(c) {
   renderMasterAnalysis(c, r);
 }
 
-// --- 코인분석스킬 3.1 통합 판정 ---
+// --- 코인분석스킬 3.2 검증 판정 ---
 const 환율캐시 = { value:null, ts:0, checkedAt:null };
 
 async function usdtKrw환율() {
@@ -880,12 +880,12 @@ async function renderMasterAnalysis(c, levels) {
   const box = document.getElementById('masterAnalysis');
   if(!box) return;
   if(typeof MarketAnalyzer === 'undefined') {
-    box.innerHTML = '<b style="color:var(--gold);">4. 🧭 코인분석스킬 3.1 통합 판정</b><br>분석 엔진을 불러오지 못했습니다.';
+    box.innerHTML = '<b style="color:var(--gold);">4. 🧭 코인분석스킬 3.2 검증 판정</b><br>분석 엔진을 불러오지 못했습니다.';
     return;
   }
 
   const price = c.candles.at(-1)?.close;
-  const result = MarketAnalyzer.analyze(mtf캐시.data, levels, price);
+  const result = MarketAnalyzer.analyze(mtf캐시.data, levels, price, {symbol:c.sym});
   const fx = await usdtKrw환율();
   const dp = c.dp();
   const 가격 = value => Number(value).toFixed(dp);
@@ -926,18 +926,27 @@ async function renderMasterAnalysis(c, levels) {
     ? `Upbit KRW-USDT ${fx.value.toLocaleString('ko-KR')}원 · ${fx.checkedAt.toLocaleString('ko-KR')}`
     : 'KRW 환산 확인 불가';
 
-  box.innerHTML = `<b style="color:var(--gold);">4. 🧭 코인분석스킬 3.1 통합 판정</b>
+  const 검증문구 = result.prediction.calibration
+    ? `BTC 5년 검증: Binance 시험 ${result.prediction.calibration.binanceTestAccuracyPct.toFixed(2)}% · MEXC 전체 ${result.prediction.calibration.mexcAllAccuracyPct.toFixed(2)}% · 비용 반영 기대값 미통과`
+    : '종목별 워크포워드·거래비용 검증 없음';
+
+  box.innerHTML = `<b style="color:var(--gold);">4. 🧭 코인분석스킬 3.2 검증 판정</b>
     <div style="color:var(--text2);font-size:11px;margin:3px 0 6px;">
       ${c.sym.replace('/','')} · Binance USDT-M 무기한 선물 · 기준 ${new Date().toLocaleString('ko-KR')} · 마지막 1H 확정 봉 ${시각(lastConfirmed)}<br>
       현재가 ${가격(price)} USDT (${원화(price)}) · 환율 ${fxInfo}
     </div>
-    <div style="font-weight:bold;margin-bottom:5px;">종합: ${result.bias}</div>
+    <div style="font-weight:bold;margin-bottom:3px;">추세 상태: ${result.trendState}</div>
+    <div style="padding:5px;background:rgba(240,165,0,.10);border-left:3px solid var(--gold);margin-bottom:6px;">
+      <b>검증형 전망: ${result.prediction.status}</b><br>
+      <span style="font-size:11px;color:var(--text2);">${result.prediction.reason}<br>${검증문구}</span>
+    </div>
     <table style="width:100%;border-collapse:collapse;font-size:11px;text-align:center;">
       <thead><tr style="color:var(--text2);"><th>봉</th><th>방향</th><th>ADX/DI/ST</th><th>구조</th><th>RSI</th></tr></thead>
       <tbody>${rows}</tbody>
     </table>
     <div style="margin-top:6px;"><b>FVG(${대표===result.frames['4h']?'4H':'1H'})</b>: ${fvgText}</div>
     <div style="margin-top:6px;padding-top:5px;border-top:1px solid rgba(0,0,0,.1);">
+      <div style="font-size:11px;color:var(--text2);">아래 값은 예측이 아닌 조건부 가격 경로입니다.</div>
       ${셋업('롱', result.scenarios.long, '#d32f2f')}
       ${셋업('숏', result.scenarios.short, '#2864dc')}
       <div style="color:var(--gold);font-weight:bold;margin-top:4px;">관망: 두 발동 조건 사이에서는 신규 진입 대기</div>
