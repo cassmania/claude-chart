@@ -1,0 +1,4 @@
+# 수정 전 로컬 백업은 배포 저장소에 포함하지 않는다.
+backups/
+.browser-test*/
+browser-v31.png

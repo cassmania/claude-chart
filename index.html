@@ -3,9 +3,10 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>제미나이 차트 v12.0 (활성 차트 워터마크 가격 표시)</title>
+<title>제미나이 차트 v13.0 (코인분석스킬 3.1 통합)</title>
 <script src="https://unpkg.com/lightweight-charts@4.1.3/dist/lightweight-charts.standalone.production.js"></script>
 <script src="level_analyzer.js?v=1.0.0" charset="utf-8"></script>
+<script src="market_analyzer.js?v=3.1.0" charset="utf-8"></script>
 <style>
 :root{
   --bg:#ffffff;
@@ -98,7 +99,7 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:'Inter'
 <body>
 <div class="app">
   <div class="topbar">
-    <div class="logo">제미나이<span> v12</span></div>
+    <div class="logo">제미나이<span> v13</span></div>
     
     <div class="search-box" style="margin-left:10px;">
       <input type="text" id="coinSearch" class="search-input" placeholder="코인 검색(BTC)" onkeydown="if(event.key==='Enter') searchCoin()">
@@ -287,8 +288,9 @@ class ChartInstance {
     this.tf = tf;
     this.candles = [];
     this.ws = null;
-    this.frValue = 0;
-    this.oiValue = 0;
+    // API 조회 전에는 0이 아니라 null이다. 0은 실제 시장값으로 오인될 수 있다.
+    this.frValue = null;
+    this.oiValue = null;
     
     this.el = document.createElement('div');
     this.el.className = 'chart-cell';
@@ -732,15 +734,20 @@ function runLocalAnalysis(idx = null) {
       <b style="color:var(--orange);">3. 🧱 다중 타임프레임 매물대</b><br>
       <span style="color:var(--text2);">1h/4h/12h/1d 겹침 계산 중...</span>
     </div>
+    <div id="masterAnalysis" style="background:var(--bg3); padding:8px; border-radius:4px; margin-bottom:8px;">
+      <b style="color:var(--gold);">4. 🧭 코인분석스킬 3.1 통합 판정</b><br>
+      <span style="color:var(--text2);">확정 봉 기준 ADX·시장 구조·FVG·양방향 시나리오 계산 중...</span>
+    </div>
     <div style="background:var(--bg3); padding:8px; border-radius:4px; margin-bottom:8px;">
-      <b style="color:var(--gold);">4. 🔥 파생/온체인 지표</b><br>
-      - 펀딩비율: <span style="color:var(--red);font-weight:600;">${c.frValue.toFixed(4)}%</span><br>
-      - 미결제약정(OI): <span style="color:var(--blue);font-weight:600;">${c.oiValue}</span>
+      <b style="color:var(--gold);">5. 🔥 파생상품 지표</b><br>
+      - 펀딩비율: <span style="color:var(--red);font-weight:600;">${c.frValue === null ? '현재 실시간 데이터 확인 불가' : c.frValue.toFixed(4)+'%'}</span><br>
+      - 미결제약정(OI): <span style="color:var(--blue);font-weight:600;">${c.oiValue === null ? '현재 실시간 데이터 확인 불가' : c.oiValue}</span><br>
+      <span style="color:var(--text2);font-size:11px;">Binance USDT-M 무기한 선물 API · 조회 시각 ${new Date().toLocaleString('ko-KR')}</span>
     </div>
     <div style="background:var(--bg3); padding:8px; border-radius:4px;">
-      <b style="color:var(--red);">5. 🎮 알고리즘 전략 추천</b><br>
+      <b style="color:var(--red);">6. 🎮 기존 단기 피벗 참고</b><br>
       <div style="font-size:14px; font-weight:bold; color:${posColor}; margin-top:4px;">
-        추천 포지션: ${pos}
+        단기 피벗 상태: ${pos}
       </div>
     </div>
   `;
@@ -762,11 +769,12 @@ const mtf캐시 = { key:null, data:null, ts:0, 진행중:false };
 
 async function mtf캔들(symFormat, interval) {
   try {
-    const r = await fetch(`${BNAPI}/klines?symbol=${symFormat}&interval=${interval}&limit=200`);
+    const r = await fetch(`${BNAPI}/klines?symbol=${symFormat}&interval=${interval}&limit=250`);
     if(!r.ok) return null;
     const d = await r.json();
     if(!Array.isArray(d) || d.length < 20) return null;
-    return d.map(k=>({high:+k[2], low:+k[3], close:+k[4], volume:+k[5]}));
+    // time은 봉 시작이 아니라 마감 시각을 보관해 "마지막 확정 봉" 표기를 정확히 한다.
+    return d.map(k=>({time:Math.floor(k[6]/1000), open:+k[1], high:+k[2], low:+k[3], close:+k[4], volume:+k[5]}));
   } catch(e) { return null; }
 }
 
@@ -805,7 +813,10 @@ async function renderMtfLevels(c) {
     mtf캐시.진행중 = false;
   }
 
-  const r = LevelEngine.analyze(mtf캐시.data, price, {limit:4});
+  // 레벨 엔진은 스킬 정의대로 최근 200봉, 마스터 엔진은 MA200 계산 여유분을 포함한 250봉을 사용한다.
+  const 레벨용 = {};
+  Object.keys(mtf캐시.data).forEach(tf=>{ 레벨용[tf] = mtf캐시.data[tf].slice(-200); });
+  const r = LevelEngine.analyze(레벨용, price, {limit:4});
   if(r.error) {
     box.innerHTML = `<b style="color:var(--orange);">3. 🧱 다중 타임프레임 매물대</b><br><span style="color:var(--text2);">${r.error}</span>`;
     return;
@@ -814,8 +825,8 @@ async function renderMtfLevels(c) {
 
   const dp = c.dp();
   const f = v => Number(v).toFixed(dp);
-  // 이 테마는 --red 가 파랑(하락), --green 이 빨강(상승)이다. 기존 코드 관례를 따른다.
-  const 저항색 = 'var(--red)', 지지색 = 'var(--green)';
+  // 코인분석스킬 시각화 기본값: 저항은 빨강, 지지는 초록.
+  const 저항색 = '#e53935', 지지색 = '#18a058';
   const 강도색 = n => n >= 4 ? 'var(--gold)' : n === 3 ? 'var(--orange)' : n === 2 ? 'var(--yellow)' : 'var(--text2)';
 
   const 행 = (x, col) => `<div style="display:flex; justify-content:space-between; gap:6px; padding:1px 0;">
@@ -844,6 +855,97 @@ async function renderMtfLevels(c) {
     <div style="margin:3px 0; border-top:1px dashed rgba(0,0,0,0.12);"></div>
     <div>${지지HTML}</div>
     ${마지노}${경고}`;
+
+  renderMasterAnalysis(c, r);
+}
+
+// --- 코인분석스킬 3.1 통합 판정 ---
+const 환율캐시 = { value:null, ts:0, checkedAt:null };
+
+async function usdtKrw환율() {
+  if(환율캐시.value && Date.now()-환율캐시.ts < 300000) return 환율캐시;
+  try {
+    const response = await fetch('https://api.upbit.com/v1/ticker?markets=KRW-USDT');
+    const rows = await response.json();
+    if(Array.isArray(rows) && rows[0] && +rows[0].trade_price > 0) {
+      환율캐시.value = +rows[0].trade_price;
+      환율캐시.ts = Date.now();
+      환율캐시.checkedAt = new Date();
+    }
+  } catch(e) { /* 실패값을 만들지 않고 기존 null을 유지한다. */ }
+  return 환율캐시;
+}
+
+async function renderMasterAnalysis(c, levels) {
+  const box = document.getElementById('masterAnalysis');
+  if(!box) return;
+  if(typeof MarketAnalyzer === 'undefined') {
+    box.innerHTML = '<b style="color:var(--gold);">4. 🧭 코인분석스킬 3.1 통합 판정</b><br>분석 엔진을 불러오지 못했습니다.';
+    return;
+  }
+
+  const price = c.candles.at(-1)?.close;
+  const result = MarketAnalyzer.analyze(mtf캐시.data, levels, price);
+  const fx = await usdtKrw환율();
+  const dp = c.dp();
+  const 가격 = value => Number(value).toFixed(dp);
+  const 원화 = value => fx.value ? Math.round(value*fx.value).toLocaleString('ko-KR')+'원' : 'KRW 환산 확인 불가';
+  const 시각 = sec => sec ? new Date(sec*1000).toLocaleString('ko-KR',{timeZone:'Asia/Seoul'}) : '확인 불가';
+  const 방향색 = value => value==='강세' ? '#d32f2f' : value==='약세' ? '#2864dc' : 'var(--text2)';
+
+  const 순서 = ['1d','12h','4h','1h'];
+  const rows = 순서.filter(tf=>result.frames[tf]).map(tf=>{
+    const x = result.frames[tf];
+    if(x.error) return `<tr><td>${tf}</td><td colspan="4">${x.error}</td></tr>`;
+    const adxText = x.adx ? `${x.adx.adx.toFixed(1)} (${x.adx.plusDI>x.adx.minusDI?'+DI 우세':'-DI 우세'})` : '표본 부족';
+    const stText = x.supertrend ? ` · ST ${x.supertrend.direction}` : '';
+    return `<tr>
+      <td style="font-weight:bold;">${tf}</td>
+      <td style="color:${방향색(x.direction)};font-weight:bold;">${x.direction}</td>
+      <td>${adxText}${stText}</td>
+      <td>${x.structure.event}${x.structure.sweep?' · '+x.structure.sweep:''}</td>
+      <td>${x.rsi===null?'확인 불가':x.rsi.toFixed(1)}</td>
+    </tr>`;
+  }).join('');
+
+  const 대표 = result.frames['4h'] && !result.frames['4h'].error ? result.frames['4h'] : result.frames['1h'];
+  const fvgText = 대표 && !대표.error && 대표.fvg.length
+    ? 대표.fvg.map(g=>`${g.type} ${가격(g.low)}~${가격(g.high)}`).join(' · ')
+    : '현재 확인된 미충족 FVG 없음';
+
+  function 셋업(label, setup, color) {
+    if(!setup) return `<div style="color:var(--text2);">${label}: 레벨 부족으로 산출 불가</div>`;
+    const rrText = Number.isFinite(setup.rr) ? setup.rr.toFixed(2) : '산출 불가';
+    return `<div style="margin-top:4px;"><b style="color:${color};">${label}</b> — 확정 봉이 ${가격(setup.trigger)} (${원화(setup.trigger)}) ${label==='롱'?'위':'아래'}에서 마감 시 발동<br>
+      진입 기준 ${가격(setup.entry)} · 무효화/손절 ${가격(setup.stop)} · 목표 ${Number.isFinite(setup.target)?가격(setup.target):'확인 불가'} · 예상 R/R ${rrText}<br>
+      <span style="color:var(--text2);font-size:11px;">${setup.invalidation} · 수수료·슬리피지·펀딩비 미반영</span></div>`;
+  }
+
+  const lastConfirmed = result.frames['1h'] && result.frames['1h'].lastConfirmed;
+  const fxInfo = fx.value
+    ? `Upbit KRW-USDT ${fx.value.toLocaleString('ko-KR')}원 · ${fx.checkedAt.toLocaleString('ko-KR')}`
+    : 'KRW 환산 확인 불가';
+
+  box.innerHTML = `<b style="color:var(--gold);">4. 🧭 코인분석스킬 3.1 통합 판정</b>
+    <div style="color:var(--text2);font-size:11px;margin:3px 0 6px;">
+      ${c.sym.replace('/','')} · Binance USDT-M 무기한 선물 · 기준 ${new Date().toLocaleString('ko-KR')} · 마지막 1H 확정 봉 ${시각(lastConfirmed)}<br>
+      현재가 ${가격(price)} USDT (${원화(price)}) · 환율 ${fxInfo}
+    </div>
+    <div style="font-weight:bold;margin-bottom:5px;">종합: ${result.bias}</div>
+    <table style="width:100%;border-collapse:collapse;font-size:11px;text-align:center;">
+      <thead><tr style="color:var(--text2);"><th>봉</th><th>방향</th><th>ADX/DI/ST</th><th>구조</th><th>RSI</th></tr></thead>
+      <tbody>${rows}</tbody>
+    </table>
+    <div style="margin-top:6px;"><b>FVG(${대표===result.frames['4h']?'4H':'1H'})</b>: ${fvgText}</div>
+    <div style="margin-top:6px;padding-top:5px;border-top:1px solid rgba(0,0,0,.1);">
+      ${셋업('롱', result.scenarios.long, '#d32f2f')}
+      ${셋업('숏', result.scenarios.short, '#2864dc')}
+      <div style="color:var(--gold);font-weight:bold;margin-top:4px;">관망: 두 발동 조건 사이에서는 신규 진입 대기</div>
+    </div>
+    <div style="color:var(--text2);font-size:11px;margin-top:6px;">
+      뉴스·언락·온체인·CVD·청산맵: 현재 실시간 데이터 확인 불가<br>
+      근거 품질 B — 거래소 공식 공개 API와 브라우저 재현 계산. 기술적 수치이며 투자 권유가 아닙니다.
+    </div>`;
 }
 
 // Init
