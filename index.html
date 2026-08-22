@@ -3,10 +3,11 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>제미나이 차트 v14.0 (코인분석스킬 3.2 검증 게이트)</title>
+<title>제미나이 차트 v15.0 (차트별 설정 자동 저장)</title>
 <script src="https://unpkg.com/lightweight-charts@4.1.3/dist/lightweight-charts.standalone.production.js"></script>
 <script src="level_analyzer.js?v=1.0.0" charset="utf-8"></script>
 <script src="market_analyzer.js?v=3.2.0" charset="utf-8"></script>
+<script src="chart_state.js?v=1.0.0" charset="utf-8"></script>
 <style>
 :root{
   --bg:#ffffff;
@@ -99,7 +100,7 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:'Inter'
 <body>
 <div class="app">
   <div class="topbar">
-    <div class="logo">제미나이<span> v14</span></div>
+    <div class="logo">제미나이<span> v15</span></div>
     
     <div class="search-box" style="margin-left:10px;">
       <input type="text" id="coinSearch" class="search-input" placeholder="코인 검색(BTC)" onkeydown="if(event.key==='Enter') searchCoin()">
@@ -210,8 +211,26 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:'Inter'
 const BNAPI = 'https://fapi.binance.com/fapi/v1';
 let charts = [];
 let autoAiTimer = null;
-let activeChartIdx = 0;
+let persistedChartState = ChartState.load(window.localStorage);
+let activeChartIdx = persistedChartState.activeChartIdx;
 let favorites = JSON.parse(localStorage.getItem('gemini_favs') || '["BTC/USDT", "ETH/USDT", "SOL/USDT"]');
+
+/**
+ * 현재 화면의 설정을 기존 8개 슬롯과 합쳐 저장한다.
+ * 분할 수를 줄여 숨겨진 차트가 생겨도 해당 위치의 설정은 지우지 않는다.
+ */
+function saveChartState(layout = persistedChartState.layout) {
+  const slots = persistedChartState.charts.map(item => ({...item}));
+  charts.forEach(chart => {
+    slots[chart.idx] = {symbol: chart.sym, timeframe: chart.tf};
+  });
+  persistedChartState = ChartState.save(window.localStorage, {
+    version: 1,
+    layout,
+    activeChartIdx,
+    charts: slots
+  });
+}
 
 function initFavs() {
   const sel = document.getElementById('favSelect');
@@ -592,14 +611,14 @@ class ChartInstance {
 // --- App Manager ---
 const app = {
   changeLayout(count) {
+    count = ChartState.normalizeLayout(count);
     const grid = document.getElementById('chartGrid');
     grid.className = 'grid-container grid-'+count;
     
     // Create new or destroy excess
     while(charts.length < count) {
-      const defaultSyms = ['BTC/USDT','ETH/USDT','SOL/USDT','XRP/USDT','DOGE/USDT','ADA/USDT','BNB/USDT','AVAX/USDT'];
-      const sym = defaultSyms[charts.length] || 'BTC/USDT';
-      const c = new ChartInstance(charts.length, sym, '1h');
+      const saved = persistedChartState.charts[charts.length];
+      const c = new ChartInstance(charts.length, saved.symbol, saved.timeframe);
       grid.appendChild(c.el);
       c.initUI();
       c.loadData();
@@ -611,13 +630,24 @@ const app = {
       grid.removeChild(c.el);
     }
     if(activeChartIdx >= count) app.setActiveChart(0);
+    document.getElementById('layoutSel').value = String(count);
+    saveChartState(count);
     setTimeout(()=>charts.forEach(c=>c.resize()), 100);
   },
   
   updateChart(idx, sym, tf) {
-    if(sym) charts[idx].sym = sym.toUpperCase();
-    if(tf) charts[idx].tf = tf;
-    charts[idx].loadData();
+    const chart = charts[idx];
+    if(!chart) return;
+    if(sym) {
+      chart.sym = ChartState.normalizeSymbol(sym, chart.sym);
+      chart.el.querySelector('.cell-sym').value = chart.sym;
+    }
+    if(tf) {
+      chart.tf = ChartState.normalizeTimeframe(tf, chart.tf);
+      chart.el.querySelector('.cell-tf').value = chart.tf;
+    }
+    saveChartState();
+    chart.loadData();
     if(idx === activeChartIdx) runLocalAnalysis();
   },
   
@@ -637,6 +667,7 @@ const app = {
       if(ch.idx === idx) ch.el.classList.add('active');
       else ch.el.classList.remove('active');
     });
+    saveChartState();
     runLocalAnalysis();
   }
 };
@@ -958,8 +989,8 @@ async function renderMasterAnalysis(c, levels) {
 }
 
 // Init
-document.getElementById('layoutSel').value = "8";
-app.changeLayout(8);
+document.getElementById('layoutSel').value = String(persistedChartState.layout);
+app.changeLayout(persistedChartState.layout);
 setTimeout(() => {
   if (document.getElementById('autoAiCheck').checked) {
     toggleAutoAi();
