@@ -7,6 +7,7 @@
 <script src="https://unpkg.com/lightweight-charts@4.1.3/dist/lightweight-charts.standalone.production.js"></script>
 <script src="level_analyzer.js?v=1.0.0" charset="utf-8"></script>
 <script src="market_analyzer.js?v=3.2.0" charset="utf-8"></script>
+<script src="v41_analyzer.js?v=4.1.0" charset="utf-8"></script>
 <script src="chart_state.js?v=1.0.0" charset="utf-8"></script>
 <style>
 :root{
@@ -766,7 +767,7 @@ function runLocalAnalysis(idx = null) {
       <span style="color:var(--text2);">1h/4h/12h/1d 겹침 계산 중...</span>
     </div>
     <div id="masterAnalysis" style="background:var(--bg3); padding:8px; border-radius:4px; margin-bottom:8px;">
-      <b style="color:var(--gold);">4. 🧭 코인분석스킬 3.2 검증 판정</b><br>
+      <b style="color:var(--gold);">4. 🧭 코인분석스킬 V4.1 검증 판정</b><br>
       <span style="color:var(--text2);">확정 봉 기준 ADX·시장 구조·FVG·양방향 시나리오 계산 중...</span>
     </div>
     <div style="background:var(--bg3); padding:8px; border-radius:4px; margin-bottom:8px;">
@@ -890,8 +891,9 @@ async function renderMtfLevels(c) {
   renderMasterAnalysis(c, r);
 }
 
-// --- 코인분석스킬 3.2 검증 판정 ---
+// --- 코인분석스킬 V4.1 검증 판정 ---
 const 환율캐시 = { value:null, ts:0, checkedAt:null };
+const 도미넌스캐시 = { value:null, ts:0, checkedAt:null, source:'CoinGecko /api/v3/global' };
 
 async function usdtKrw환율() {
   if(환율캐시.value && Date.now()-환율캐시.ts < 300000) return 환율캐시;
@@ -907,17 +909,33 @@ async function usdtKrw환율() {
   return 환율캐시;
 }
 
+async function usdt도미넌스() {
+  if(도미넌스캐시.value !== null && Date.now()-도미넌스캐시.ts < 300000) return 도미넌스캐시;
+  try {
+    const response = await fetch('https://api.coingecko.com/api/v3/global');
+    const payload = await response.json();
+    const value = +payload?.data?.market_cap_percentage?.usdt;
+    if(Number.isFinite(value) && value > 0) {
+      도미넌스캐시.value = value;
+      도미넌스캐시.ts = Date.now();
+      도미넌스캐시.checkedAt = new Date();
+    }
+  } catch(e) { /* 실패 시 수치를 만들지 않는다. */ }
+  return 도미넌스캐시;
+}
+
 async function renderMasterAnalysis(c, levels) {
   const box = document.getElementById('masterAnalysis');
   if(!box) return;
-  if(typeof MarketAnalyzer === 'undefined') {
-    box.innerHTML = '<b style="color:var(--gold);">4. 🧭 코인분석스킬 3.2 검증 판정</b><br>분석 엔진을 불러오지 못했습니다.';
+  if(typeof MarketAnalyzer === 'undefined' || typeof V41Analyzer === 'undefined') {
+    box.innerHTML = '<b style="color:var(--gold);">4. 🧭 코인분석스킬 V4.1 검증 판정</b><br>분석 엔진을 불러오지 못했습니다.';
     return;
   }
 
   const price = c.candles.at(-1)?.close;
   const result = MarketAnalyzer.analyze(mtf캐시.data, levels, price, {symbol:c.sym});
-  const fx = await usdtKrw환율();
+  const v41 = V41Analyzer.enrich(mtf캐시.data, result);
+  const [fx, dominance] = await Promise.all([usdtKrw환율(), usdt도미넌스()]);
   const dp = c.dp();
   const 가격 = value => Number(value).toFixed(dp);
   const 원화 = value => fx.value ? Math.round(value*fx.value).toLocaleString('ko-KR')+'원' : 'KRW 환산 확인 불가';
@@ -940,6 +958,16 @@ async function renderMasterAnalysis(c, levels) {
   }).join('');
 
   const 대표 = result.frames['4h'] && !result.frames['4h'].error ? result.frames['4h'] : result.frames['1h'];
+  const 대표봉 = result.frames['4h'] && !result.frames['4h'].error ? '4h' : '1h';
+  const 정밀 = v41.frames[대표봉] || {};
+  const maValues = [정밀.sma20,정밀.sma60,정밀.sma120,정밀.sma200];
+  const maText = maValues.every(Number.isFinite)
+    ? (정밀.sma20>정밀.sma60&&정밀.sma60>정밀.sma120&&정밀.sma120>정밀.sma200?'정배열':정밀.sma20<정밀.sma60&&정밀.sma60<정밀.sma120&&정밀.sma120<정밀.sma200?'역배열':'혼조')
+    : '장기 표본 부족';
+  const profileText = 정밀.profile
+    ? `POC ${가격(정밀.profile.poc)} · VAH ${가격(정밀.profile.vah)} · VAL ${가격(정밀.profile.val)} · ${정밀.profile.method}`
+    : '현재 실시간 데이터 확인 불가';
+  const momentumText = `RSI(14) ${대표?.rsi===null||대표?.rsi===undefined?'표본 부족':대표.rsi.toFixed(1)} · CCI(20) ${Number.isFinite(정밀.cci20)?정밀.cci20.toFixed(1):'표본 부족'} · MACD ${대표?.macd?대표.macd.hist.toFixed(dp):'표본 부족'} · Stochastic(14,3,3) ${정밀.stochastic?`%K ${정밀.stochastic.k.toFixed(1)} / %D ${정밀.stochastic.d.toFixed(1)}`:'표본 부족'}`;
   const fvgText = 대표 && !대표.error && 대표.fvg.length
     ? 대표.fvg.map(g=>`${g.type} ${가격(g.low)}~${가격(g.high)}`).join(' · ')
     : '현재 확인된 미충족 FVG 없음';
@@ -947,6 +975,7 @@ async function renderMasterAnalysis(c, levels) {
   function 셋업(label, setup, color) {
     if(!setup) return `<div style="color:var(--text2);">${label}: 레벨 부족으로 산출 불가</div>`;
     const rrText = Number.isFinite(setup.rr) ? setup.rr.toFixed(2) : '산출 불가';
+    if(!Number.isFinite(setup.rr) || setup.rr < 1.5) return `<div style="color:var(--text2);">${label}: 예상 R/R ${rrText}로 최소 1.5 미달 · 관망</div>`;
     return `<div style="margin-top:4px;"><b style="color:${color};">${label}</b> — 확정 봉이 ${가격(setup.trigger)} (${원화(setup.trigger)}) ${label==='롱'?'위':'아래'}에서 마감 시 발동<br>
       진입 기준 ${가격(setup.entry)} · 무효화/손절 ${가격(setup.stop)} · 목표 ${Number.isFinite(setup.target)?가격(setup.target):'확인 불가'} · 예상 R/R ${rrText}<br>
       <span style="color:var(--text2);font-size:11px;">${setup.invalidation} · 수수료·슬리피지·펀딩비 미반영</span></div>`;
@@ -956,34 +985,41 @@ async function renderMasterAnalysis(c, levels) {
   const fxInfo = fx.value
     ? `Upbit KRW-USDT ${fx.value.toLocaleString('ko-KR')}원 · ${fx.checkedAt.toLocaleString('ko-KR')}`
     : 'KRW 환산 확인 불가';
+  const dominanceInfo = dominance.value !== null
+    ? `USDT.D ${dominance.value.toFixed(3)}% · ${dominance.source} · ${dominance.checkedAt.toLocaleString('ko-KR')}`
+    : 'USDT.D 현재 데이터 확인 불가';
+  const oiText = Number.isFinite(c.oiValue)
+    ? `${c.oiValue.toLocaleString('en-US')} ${c.sym.split('/')[0]} 계약수량 · 명목가 약 ${(c.oiValue*price).toLocaleString('en-US',{maximumFractionDigits:0})} USDT`
+    : '현재 실시간 데이터 확인 불가';
+  const fundingText = Number.isFinite(c.frValue) ? `${c.frValue.toFixed(4)}%` : '현재 실시간 데이터 확인 불가';
+  const riskText = '포지션 위험액 = 계좌 평가액 × 0.5~1% · 포지션 크기 = 위험액 ÷ |진입가-손절가| · 레버리지는 손절폭과 청산가로 역산(고정 배수 권장 안 함)';
 
   const 검증문구 = result.prediction.calibration
     ? `BTC 5년 검증: Binance 시험 ${result.prediction.calibration.binanceTestAccuracyPct.toFixed(2)}% · MEXC 전체 ${result.prediction.calibration.mexcAllAccuracyPct.toFixed(2)}% · 비용 반영 기대값 미통과`
     : '종목별 워크포워드·거래비용 검증 없음';
 
-  box.innerHTML = `<b style="color:var(--gold);">4. 🧭 코인분석스킬 3.2 검증 판정</b>
+  box.innerHTML = `<b style="color:var(--gold);">4. 🧭 코인분석스킬 V4.1 검증 판정</b>
     <div style="color:var(--text2);font-size:11px;margin:3px 0 6px;">
       ${c.sym.replace('/','')} · Binance USDT-M 무기한 선물 · 기준 ${new Date().toLocaleString('ko-KR')} · 마지막 1H 확정 봉 ${시각(lastConfirmed)}<br>
       현재가 ${가격(price)} USDT (${원화(price)}) · 환율 ${fxInfo}
     </div>
-    <div style="font-weight:bold;margin-bottom:3px;">추세 상태: ${result.trendState}</div>
-    <div style="padding:5px;background:rgba(240,165,0,.10);border-left:3px solid var(--gold);margin-bottom:6px;">
-      <b>검증형 전망: ${result.prediction.status}</b><br>
-      <span style="font-size:11px;color:var(--text2);">${result.prediction.reason}<br>${검증문구}</span>
-    </div>
+    <div style="padding:5px;background:var(--bg3);margin-bottom:6px;"><b>PART 0 · 데이터 기준 및 USDT.D</b><br>확정봉만 계산 · Binance 공식 공개 API · ${dominanceInfo}<br><span style="color:var(--text2);font-size:11px;">USDT.D는 단독 매매 신호가 아닌 위험선호 보조 필터</span></div>
+    <div style="padding:5px;background:var(--bg3);margin-bottom:6px;"><b>PART 1 · 기술적 분석</b><br>추세 ${result.trendState} · SMA20/60/120/200 ${maText} · SuperTrend ${대표?.supertrend?.direction||'표본 부족'}<br>${momentumText}<br>근사 VPVR ${profileText}<br>앵커 VWAP ${Number.isFinite(정밀.anchoredVwap)?가격(정밀.anchoredVwap):'현재 실시간 데이터 확인 불가'} · ${대표봉.toUpperCase()} 조회 구간 시작봉 앵커</div>
     <table style="width:100%;border-collapse:collapse;font-size:11px;text-align:center;">
       <thead><tr style="color:var(--text2);"><th>봉</th><th>방향</th><th>ADX/DI/ST</th><th>구조</th><th>RSI</th></tr></thead>
       <tbody>${rows}</tbody>
     </table>
-    <div style="margin-top:6px;"><b>FVG(${대표===result.frames['4h']?'4H':'1H'})</b>: ${fvgText}</div>
-    <div style="margin-top:6px;padding-top:5px;border-top:1px solid rgba(0,0,0,.1);">
-      <div style="font-size:11px;color:var(--text2);">아래 값은 예측이 아닌 조건부 가격 경로입니다.</div>
+    <div style="margin-top:6px;"><b>FVG(${대표봉.toUpperCase()})</b>: ${fvgText}</div>
+    <div style="padding:5px;background:var(--bg3);margin-top:6px;"><b>PART 2 · 선물 및 군중 심리</b><br>펀딩비 ${fundingText}<br>OI ${oiText}<br><span style="color:var(--text2);">OI 1H 변화율·CVD·청산맵: 현재 실시간 데이터 확인 불가</span></div>
+    <div style="padding:5px;background:var(--bg3);margin-top:6px;"><b>PART 3 · 온체인 및 고래</b><br><span style="color:var(--text2);">거래소 순유입·고래 지갑·MVRV·SOPR: 현재 실시간 데이터 확인 불가</span></div>
+    <div style="padding:5px;background:var(--bg3);margin-top:6px;"><b>PART 4 · 토큰노믹스 및 뉴스</b><br><span style="color:var(--text2);">언락·기관 동향·프로젝트 이벤트·개별 뉴스: 현재 실시간 데이터 확인 불가 · 웹 조사 미수행</span></div>
+    <div style="margin-top:6px;padding:5px;background:var(--bg3);border-top:1px solid rgba(0,0,0,.1);"><b>PART 5 · 실행 전략 및 위험관리</b><br><span style="font-size:11px;color:var(--text2);">아래 값은 예측이 아닌 조건부 가격 경로입니다.</span>
       ${셋업('롱', result.scenarios.long, '#d32f2f')}
       ${셋업('숏', result.scenarios.short, '#2864dc')}
-      <div style="color:var(--gold);font-weight:bold;margin-top:4px;">관망: 두 발동 조건 사이에서는 신규 진입 대기</div>
+      <div style="color:var(--gold);font-weight:bold;margin-top:4px;">관망: 두 발동 조건 사이에서는 신규 진입 대기</div><div style="font-size:11px;margin-top:3px;">${riskText}</div>
     </div>
+    <div style="padding:5px;background:rgba(240,165,0,.10);border-left:3px solid var(--gold);margin-top:6px;"><b>검증형 전망: ${result.prediction.status}</b><br><span style="font-size:11px;color:var(--text2);">${result.prediction.reason}<br>${검증문구}</span></div>
     <div style="color:var(--text2);font-size:11px;margin-top:6px;">
-      뉴스·언락·온체인·CVD·청산맵: 현재 실시간 데이터 확인 불가<br>
       근거 품질 B — 거래소 공식 공개 API와 브라우저 재현 계산. 기술적 수치이며 투자 권유가 아닙니다.
     </div>`;
 }
