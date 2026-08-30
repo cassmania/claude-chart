@@ -18,5 +18,7 @@ assert.match(html, /MarketAnalyzer\.confirmedCandles\(mtf캐시\.data\[tf\]\)\.s
 assert.match(html, /width:min\(400px,100vw\)/);
 assert.match(html, /환율캐시\.ts = Date\.now\(\)/);
 assert.match(html, /도미넌스캐시\.ts = Date\.now\(\)/);
+assert.doesNotMatch(html, /fetch\('https:\/\/api\.coingecko\.com/);
+assert.match(html, /<link rel="icon" href="data:,">/);
 
 console.log('V4.1 화면 통합 테스트 통과');
