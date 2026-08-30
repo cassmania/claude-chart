@@ -8,19 +8,19 @@
   "use strict";
 
   /**
-   * 2021-08-17~2026-08-17 BTC 교차 거래소 워크포워드 검증 결과.
+   * 2021-08-30~2026-08-30 BTC 교차 거래소 워크포워드 검증 결과.
    * 방향 적중률은 개선됐지만 비용 반영 기대값이 음수여서 매매 신호로 채택하지 않았다.
    */
   var CALIBRATION = {
-    version: "BTC-5Y-20260817",
+    version: "BTC-5Y-20260831",
     asset: "BTC",
     horizon: "12h",
-    binanceTestAccuracyPct: 56.37,
-    binanceTestWilson95Pct: [50.84, 61.75],
-    mexcAllAccuracyPct: 53.02,
-    mexcAllWilson95Pct: [50.54, 55.50],
-    binanceNetExpectancyPct: -0.103,
-    mexcNetExpectancyPct: -0.226,
+    binanceTestAccuracyPct: 55.52,
+    binanceTestWilson95Pct: [50.09, 60.82],
+    mexcAllAccuracyPct: 52.69,
+    mexcAllWilson95Pct: [50.21, 55.16],
+    binanceNetExpectancyPct: -0.169,
+    mexcNetExpectancyPct: -0.198,
     actionable: false
   };
 
@@ -78,7 +78,8 @@
       gain = (gain * (period - 1) + Math.max(d, 0)) / period;
       loss = (loss * (period - 1) + Math.max(-d, 0)) / period;
     }
-    if (loss === 0) return 100;
+    // 상승과 하락이 모두 없는 완전 횡보 구간은 과매수가 아니라 중립입니다.
+    if (loss === 0) return gain === 0 ? 50 : 100;
     return 100 - 100 / (1 + gain / loss);
   }
 
@@ -311,7 +312,7 @@
   }
 
   global.MarketAnalyzer = {
-    VERSION: "3.2.0",
+    VERSION: "3.2.1",
     CALIBRATION: CALIBRATION,
     confirmedCandles: 확정봉,
     rsi: rsi,

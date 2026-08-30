@@ -8,6 +8,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
+import { 거래비용, 비용차감수익률 } from './costs.mjs';
 
 const require = createRequire(import.meta.url);
 const MarketAnalyzer = require('../market_analyzer.js');
@@ -209,7 +210,7 @@ function 구간(records, start, end) {
   return records.filter(r => r.time >= start && r.time < end);
 }
 
-function 전략(records, cfg, raw, roundTripCost = 0.0012) {
+function 전략(records, cfg, raw, oneWayCost = 0.0006) {
   const trades = [];
   let occupiedUntil = -1;
   for (const r of records) {
@@ -234,7 +235,8 @@ function 전략(records, cfg, raw, roundTripCost = 0.0012) {
       if (targetHit) { exit = target; exitIndex = i; reason = '목표'; break; }
     }
     const grossR = side * (exit - entry) / riskDistance;
-    const costR = entry * roundTripCost / riskDistance;
+    // 진입가와 청산가 각각에 수수료·슬리피지를 적용합니다.
+    const costR = 거래비용(entry, exit, oneWayCost) / riskDistance;
     trades.push({ time: r.time, side, entry, exit, grossR, netR: grossR - costR, reason });
     occupiedUntil = exitIndex;
   }
@@ -261,7 +263,7 @@ function 전략(records, cfg, raw, roundTripCost = 0.0012) {
 }
 
 /** 12H 방향 예측과 동일한 만기의 고정 보유 검산. 신호가 겹치면 새 포지션을 열지 않는다. */
-function 고정12H전략(records, cfg, raw, roundTripCost = 0.0012) {
+function 고정12H전략(records, cfg, raw, oneWayCost = 0.0006) {
   const trades = [];
   let occupiedUntil = -1;
   for (const r of records) {
@@ -271,7 +273,8 @@ function 고정12H전략(records, cfg, raw, roundTripCost = 0.0012) {
     const entry = raw[r.rawIndex + 1].open;
     const exit = raw[r.rawIndex + 12].close;
     const grossReturn = side * (exit / entry - 1);
-    trades.push({ time: r.time, side, grossReturn, netReturn: grossReturn - roundTripCost });
+    const netReturn = 비용차감수익률(entry, exit, side, oneWayCost);
+    trades.push({ time: r.time, side, grossReturn, netReturn });
     occupiedUntil = r.rawIndex + 12;
   }
   const wins = trades.filter(t => t.netReturn > 0);
@@ -347,19 +350,19 @@ const mexcSelected = Object.fromEntries(Object.entries(mexcSplits).map(([k, rows
 
 const strategy = {};
 for (const [name, rows] of Object.entries(splits)) {
-  strategy[`binance_${name}_baseline`] = 전략(rows, baseline, binance.raw, 0.0012);
-  strategy[`binance_${name}_selected`] = 전략(rows, selected, binance.raw, 0.0012);
+  strategy[`binance_${name}_baseline`] = 전략(rows, baseline, binance.raw, 0.0006);
+  strategy[`binance_${name}_selected`] = 전략(rows, selected, binance.raw, 0.0006);
 }
-strategy.mexc_all_baseline = 전략(mexc.records, baseline, mexc.raw, 0.0012);
-strategy.mexc_all_selected = 전략(mexc.records, selected, mexc.raw, 0.0012);
+strategy.mexc_all_baseline = 전략(mexc.records, baseline, mexc.raw, 0.0006);
+strategy.mexc_all_selected = 전략(mexc.records, selected, mexc.raw, 0.0006);
 
 const fixedHorizonStrategy = {
-  binance_validation_baseline: 고정12H전략(splits.validation, baseline, binance.raw, 0.0012),
-  binance_validation_selected: 고정12H전략(splits.validation, selected, binance.raw, 0.0012),
-  binance_test_baseline: 고정12H전략(splits.test, baseline, binance.raw, 0.0012),
-  binance_test_selected: 고정12H전략(splits.test, selected, binance.raw, 0.0012),
-  mexc_all_baseline: 고정12H전략(mexc.records, baseline, mexc.raw, 0.0012),
-  mexc_all_selected: 고정12H전략(mexc.records, selected, mexc.raw, 0.0012)
+  binance_validation_baseline: 고정12H전략(splits.validation, baseline, binance.raw, 0.0006),
+  binance_validation_selected: 고정12H전략(splits.validation, selected, binance.raw, 0.0006),
+  binance_test_baseline: 고정12H전략(splits.test, baseline, binance.raw, 0.0006),
+  binance_test_selected: 고정12H전략(splits.test, selected, binance.raw, 0.0006),
+  mexc_all_baseline: 고정12H전략(mexc.records, baseline, mexc.raw, 0.0006),
+  mexc_all_selected: 고정12H전략(mexc.records, selected, mexc.raw, 0.0006)
 };
 
 const validationImproved = selectedMetrics.validation.balancedAccuracy >= baselineMetrics.validation.balancedAccuracy + 0.005;

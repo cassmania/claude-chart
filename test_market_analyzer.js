@@ -48,6 +48,11 @@ console.log('\n[2] Wilder 지표');
   assert.ok(MarketAnalyzer.rsi(values, 14) > 90);
 });
 
+검증('완전 횡보 RSI는 중립값 50이다', () => {
+  const values = Array(60).fill(100);
+  assert.strictEqual(MarketAnalyzer.rsi(values, 14), 50);
+});
+
 검증('상승 추세에서 +DI가 -DI보다 높다', () => {
   const result = MarketAnalyzer.adx(캔들(100, 1), 14);
   assert.ok(result && result.plusDI > result.minusDI);
@@ -136,6 +141,8 @@ console.log('\n[4] 시간봉 통합과 시나리오');
   assert.strictEqual(result.prediction.status, '관망');
   assert.strictEqual(result.prediction.actionable, false);
   assert.ok(result.prediction.reason.includes('기대값이 음수'));
+  assert.strictEqual(result.prediction.calibration.version, 'BTC-5Y-20260831');
+  assert.strictEqual(result.prediction.calibration.binanceTestAccuracyPct, 55.52);
 });
 
 검증('미검증 종목은 백테스트 승률을 일반화하지 않는다', () => {

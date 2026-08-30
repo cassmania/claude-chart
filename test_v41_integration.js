@@ -14,5 +14,9 @@ assert.match(html, /SMA20\/60\/120\/200/);
 assert.match(html, /Stochastic\(14,3,3\)/);
 assert.match(html, /포지션 위험액 = 계좌 평가액 × 0\.5~1%/);
 assert.match(html, /웹 조사 미수행/);
+assert.match(html, /MarketAnalyzer\.confirmedCandles\(mtf캐시\.data\[tf\]\)\.slice\(-200\)/);
+assert.match(html, /width:min\(400px,100vw\)/);
+assert.match(html, /환율캐시\.ts = Date\.now\(\)/);
+assert.match(html, /도미넌스캐시\.ts = Date\.now\(\)/);
 
 console.log('V4.1 화면 통합 테스트 통과');
