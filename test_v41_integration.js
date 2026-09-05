@@ -20,5 +20,8 @@ assert.match(html, /환율캐시\.ts = Date\.now\(\)/);
 assert.match(html, /도미넌스캐시\.ts = Date\.now\(\)/);
 assert.doesNotMatch(html, /fetch\('https:\/\/api\.coingecko\.com/);
 assert.match(html, /<link rel="icon" href="data:,">/);
+assert.match(html, /interval=\$\{interval\}&limit=251/);
+assert.match(html, /backtest_results\/calibration\.js/);
+assert.match(html, /backtest_results\/BTC_5Y_BACKTEST_REPORT\.md/);
 
 console.log('V4.1 화면 통합 테스트 통과');

@@ -94,6 +94,11 @@ console.log('\n[3] 시장 구조와 FVG');
 
 console.log('\n[4] 시간봉 통합과 시나리오');
 
+검증('완전 횡보를 비교값이 같다는 이유로 약세 판정하지 않는다', () => {
+  const data = Array.from({length:250},(_,i)=>({time:i+1,open:100,high:100,low:100,close:100,volume:100}));
+  assert.strictEqual(MarketAnalyzer.analyzeTimeframe(data,{excludeLast:false}).direction,'중립');
+});
+
 검증('상승 데이터는 강세로 판정한다', () => {
   const result = MarketAnalyzer.analyzeTimeframe(캔들(250, 1), { excludeLast: false });
   assert.strictEqual(result.direction, '강세');
@@ -141,8 +146,9 @@ console.log('\n[4] 시간봉 통합과 시나리오');
   assert.strictEqual(result.prediction.status, '관망');
   assert.strictEqual(result.prediction.actionable, false);
   assert.ok(result.prediction.reason.includes('기대값이 음수'));
-  assert.strictEqual(result.prediction.calibration.version, 'BTC-5Y-20260831');
-  assert.strictEqual(result.prediction.calibration.binanceTestAccuracyPct, 55.52);
+  const report = require('./backtest_results/calibration.js');
+  assert.strictEqual(result.prediction.calibration.version, report.version);
+  assert.strictEqual(result.prediction.calibration.binanceTestAccuracyPct, report.binanceTestAccuracyPct);
 });
 
 검증('미검증 종목은 백테스트 승률을 일반화하지 않는다', () => {

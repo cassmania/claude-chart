@@ -6,6 +6,7 @@
  */
 import fs from 'node:fs';
 import path from 'node:path';
+import crypto from 'node:crypto';
 import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
 import { 거래비용, 비용차감수익률 } from './costs.mjs';
@@ -24,7 +25,27 @@ fs.mkdirSync(RESULT_DIR, { recursive: true });
 function 로드(exchange) {
   const file = path.join(DATA_DIR, `${exchange}_BTCUSDT_1h_5y.json`);
   if (!fs.existsSync(file)) throw new Error(`${file} 없음. fetch_btc_5y.mjs를 먼저 실행하세요.`);
-  return JSON.parse(fs.readFileSync(file, 'utf8'));
+  const text = fs.readFileSync(file, 'utf8');
+  const payload = JSON.parse(text);
+  // 저장된 요약을 신뢰하지 않고 실제 입력을 다시 검사한다. 누락은 허용하되 평가에서는 제외한다.
+  const rows = payload.candles;
+  if (!rows.length || rows.some((c, i) => ![c.time,c.open,c.high,c.low,c.close,c.volume].every(Number.isFinite)
+    || c.time % HOUR !== 0 || c.time < payload.meta.start || c.time + HOUR > payload.meta.endExclusive
+    || (i > 0 && c.time <= rows[i-1].time) || c.low <= 0 || c.high < c.low
+    || c.open < c.low || c.open > c.high || c.close < c.low || c.close > c.high || c.volume < 0)) {
+    throw new Error(`${exchange}: 원자료 유한값·가격 범위·시간 순서 검사 실패`);
+  }
+  payload.sha256 = crypto.createHash('sha256').update(text).digest('hex');
+  return payload;
+}
+
+/** 배열 위치가 아닌 실제 경과 시간까지 일치해야 미래 수익·체결을 평가한다. */
+function 연속미래(raw, index, hours) {
+  if (!raw[index + hours]) return false;
+  for (let i = 1; i <= hours; i++) {
+    if (raw[index + i].time !== raw[index].time + i * HOUR) return false;
+  }
+  return true;
 }
 
 /** 누락이 하나라도 있는 상위 봉은 만들지 않는다. */
@@ -90,7 +111,7 @@ function 연도더하기(ms, years) {
  * 매 4H 확정 시점의 지표를 계산한다.
  * 모든 입력 배열은 decisionEnd 이하의 확정 봉만 잘라서 전달한다.
  */
-function 특징생성(payload) {
+function 특징생성(payload, { cache = true, progress = true } = {}) {
   const raw = payload.candles.map(c => ({ ...c, endTime: c.time + HOUR }));
   const packs = {
     '1h': raw,
@@ -101,20 +122,25 @@ function 특징생성(payload) {
   const rawByEnd = new Map(raw.map((c, i) => [c.endTime, i]));
   const records = [];
   const decisions = packs['4h'];
+  const latest = {};
 
   for (let di = 0; di < decisions.length; di++) {
     const decisionEnd = decisions[di].endTime;
     const rawIndex = rawByEnd.get(decisionEnd);
-    if (rawIndex === undefined || rawIndex + 24 >= raw.length) continue;
+    if (rawIndex === undefined || !연속미래(raw, rawIndex, 24)) continue;
     const frames = {};
     const windows = {};
     let ready = true;
     for (const tf of ['1h', '4h', '12h', '1d']) {
       const last = 이진마지막(packs[tf], decisionEnd);
       if (last < 249) { ready = false; break; }
+      // 누락 때문에 오래된 상위 봉을 현재 확정봉처럼 재사용하지 않는다.
+      if (packs[tf][last].endTime !== Math.floor(decisionEnd / TF_MS[tf]) * TF_MS[tf]) { ready = false; break; }
       const window = packs[tf].slice(last - 249, last + 1);
       windows[tf] = window;
-      frames[tf] = MarketAnalyzer.analyzeTimeframe(window, { excludeLast: false });
+      // 같은 상위 시간봉은 4H 판정 사이에 바뀌지 않는다. 마지막 한 결과만 보관한다.
+      if (!cache || latest[tf]?.last !== last) latest[tf] = { last, result: MarketAnalyzer.analyzeTimeframe(window, { excludeLast: false }) };
+      frames[tf] = latest[tf].result;
       if (frames[tf].error) { ready = false; break; }
     }
     if (!ready) continue;
@@ -130,9 +156,9 @@ function 특징생성(payload) {
       atr4h: atr(windows['4h'], 14),
       frames
     });
-    if (di % 1000 === 0) process.stdout.write(`\r${payload.meta.exchange} 특징 ${di}/${decisions.length}`);
+    if (progress && di % 1000 === 0) process.stdout.write(`\r${payload.meta.exchange} 특징 ${di}/${decisions.length}`);
   }
-  process.stdout.write('\n');
+  if (progress) process.stdout.write('\n');
   return { raw, packs, records };
 }
 
@@ -168,10 +194,14 @@ function wilson(success, n, z = 1.96) {
 
 function 정확도(records, cfg, horizon = '12h') {
   let signals = 0, hits = 0, longs = 0, longHits = 0, shorts = 0, shortHits = 0;
+  let actualUp = 0, actualDown = 0, flat = 0;
   for (const r of records) {
     const side = 신호(r, cfg);
     if (!side) continue;
     signals++;
+    if (r.forwardReturns[horizon] > 0) actualUp++;
+    else if (r.forwardReturns[horizon] < 0) actualDown++;
+    else flat++;
     const hit = side * r.forwardReturns[horizon] > 0;
     if (hit) hits++;
     if (side === 1) { longs++; if (hit) longHits++; }
@@ -179,7 +209,8 @@ function 정확도(records, cfg, horizon = '12h') {
   }
   const longAccuracy = longs ? longHits / longs : null;
   const shortAccuracy = shorts ? shortHits / shorts : null;
-  const balanced = longAccuracy !== null && shortAccuracy !== null ? (longAccuracy + shortAccuracy) / 2 : null;
+  // 균형 정확도는 실제 정답 클래스별 재현율 평균이다. 가격 불변은 방향 적중에서 실패로 집계한다.
+  const balanced = actualUp && actualDown ? (longHits / actualUp + shortHits / actualDown) / 2 : null;
   const ci = wilson(hits, signals);
   return {
     eligible: records.length,
@@ -187,6 +218,8 @@ function 정확도(records, cfg, horizon = '12h') {
     coverage: records.length ? signals / records.length : 0,
     accuracy: signals ? hits / signals : null,
     balancedAccuracy: balanced,
+    directionPrecisionMean: longAccuracy !== null && shortAccuracy !== null ? (longAccuracy + shortAccuracy) / 2 : null,
+    actualUp, actualDown, flat,
     longs, longAccuracy,
     shorts, shortAccuracy,
     wilsonLow: ci[0], wilsonHigh: ci[1]
@@ -207,7 +240,8 @@ function 설정목록() {
 }
 
 function 구간(records, start, end) {
-  return records.filter(r => r.time >= start && r.time < end);
+  // 최장 평가·보유 24H가 끝까지 구간 안에 있어야 학습에 다음 구간 가격이 섞이지 않는다.
+  return records.filter(r => r.time >= start && r.time + 24 * HOUR <= end);
 }
 
 function 전략(records, cfg, raw, oneWayCost = 0.0006) {
@@ -217,6 +251,7 @@ function 전략(records, cfg, raw, oneWayCost = 0.0006) {
     if (r.rawIndex <= occupiedUntil || !(r.atr4h > 0)) continue;
     const side = 신호(r, cfg);
     if (!side) continue;
+    if (!연속미래(raw, r.rawIndex, 24)) continue;
     const entryIndex = r.rawIndex + 1;
     if (!raw[entryIndex]) continue;
     const entry = raw[entryIndex].open;
@@ -231,7 +266,7 @@ function 전략(records, cfg, raw, oneWayCost = 0.0006) {
       const stopHit = side === 1 ? c.low <= stop : c.high >= stop;
       const targetHit = side === 1 ? c.high >= target : c.low <= target;
       // 봉 내부 순서를 알 수 없으므로 동시 접촉은 보수적으로 손절 우선이다.
-      if (stopHit) { exit = stop; exitIndex = i; reason = targetHit ? '동시접촉-손절우선' : '손절'; break; }
+      if (stopHit) { exit = side === 1 ? Math.min(stop, c.open) : Math.max(stop, c.open); exitIndex = i; reason = targetHit ? '동시접촉-손절우선' : '손절'; break; }
       if (targetHit) { exit = target; exitIndex = i; reason = '목표'; break; }
     }
     const grossR = side * (exit - entry) / riskDistance;
@@ -269,7 +304,7 @@ function 고정12H전략(records, cfg, raw, oneWayCost = 0.0006) {
   for (const r of records) {
     if (r.rawIndex <= occupiedUntil) continue;
     const side = 신호(r, cfg);
-    if (!side || !raw[r.rawIndex + 12] || !raw[r.rawIndex + 1]) continue;
+    if (!side || !연속미래(raw, r.rawIndex, 12)) continue;
     const entry = raw[r.rawIndex + 1].open;
     const exit = raw[r.rawIndex + 12].close;
     const grossReturn = side * (exit / entry - 1);
@@ -302,8 +337,12 @@ function configText(c) {
   return `${c.forecastMode === 'contrarian' ? '평균회귀형' : '추세지속형'}, 점수≥${c.scoreThreshold}, MTF ${c.mtfAgree}/4, ADX≥${c.adxMin || '없음'}, 거래량≥${c.volumeMin || '없음'}, RSI추격방지=${c.avoidRsiChase ? '예' : '아니오'}, 1D·4H정렬=${c.align1d4h ? '필수' : '아니오'}`;
 }
 
+function main() {
 const binancePayload = 로드('binance');
 const mexcPayload = 로드('mexc');
+if (binancePayload.meta.start !== mexcPayload.meta.start || binancePayload.meta.endExclusive !== mexcPayload.meta.endExclusive) {
+  throw new Error('거래소별 수집 기간이 다릅니다. 같은 기간으로 다시 수집하세요.');
+}
 const binance = 특징생성(binancePayload);
 const mexc = 특징생성(mexcPayload);
 
@@ -384,7 +423,12 @@ for (const horizon of ['4h', '12h', '24h']) {
 }
 
 const output = {
+  schemaVersion: 2,
   generatedAt: new Date().toISOString(),
+  snapshotHashes: {binance: binancePayload.sha256, mexc: mexcPayload.sha256},
+  assumptions: {confirmedBars:250,decisionHours:4,horizonHours:12,purgeHours:24,
+    feeAndSlippagePerSide:0.0006,stopGap:'ADVERSE_OPEN',missingFuture:'EXCLUDE',
+    balancedAccuracy:'MEAN_ACTUAL_CLASS_RECALL',fundingIncluded:false},
   period: { start: new Date(start).toISOString(), endExclusive: new Date(end).toISOString(), trainEnd: new Date(trainEnd).toISOString(), validationEnd: new Date(validationEnd).toISOString() },
   dataQuality: { binance: binancePayload.quality, mexc: mexcPayload.quality },
   baseline,
@@ -399,6 +443,25 @@ const output = {
 };
 
 fs.writeFileSync(path.join(RESULT_DIR, 'btc_5y_backtest.json'), JSON.stringify(output, null, 2));
+
+// 화면과 보고서가 동일한 실행 결과를 사용한다. 높은 적중률만으로 실거래를 활성화하지 않는다.
+const calibration = {
+  version: 'BTC-5Y-' + output.generatedAt.slice(0,10).replaceAll('-',''), asset:'BTC', horizon:'12h',
+  generatedAt:output.generatedAt, period:output.period, selected, adopted, actionable:false,
+  binanceTestSignals:selectedMetrics.test.signals,
+  binanceTestAccuracyPct:selectedMetrics.test.accuracy * 100,
+  binanceTestWilson95Pct:[selectedMetrics.test.wilsonLow * 100,selectedMetrics.test.wilsonHigh * 100],
+  mexcAllAccuracyPct:mexcSelected.all.accuracy * 100,
+  mexcAllWilson95Pct:[mexcSelected.all.wilsonLow * 100,mexcSelected.all.wilsonHigh * 100],
+  binanceNetExpectancyPct:fixedHorizonStrategy.binance_test_selected.expectancy * 100,
+  mexcNetExpectancyPct:fixedHorizonStrategy.mexc_all_selected.expectancy * 100,
+  binanceTestProfitFactor:fixedHorizonStrategy.binance_test_selected.profitFactor,
+  binanceTestTrades:fixedHorizonStrategy.binance_test_selected.trades
+};
+fs.writeFileSync(path.join(RESULT_DIR,'calibration.js'),
+  '/* 백테스트 실행 결과에서 자동 생성한 화면용 근거입니다. */\n'
+  + '(function(root){ const result = Object.freeze(' + JSON.stringify(calibration) + ');'
+  + ' root.ClaudeChartBacktest = result; if(typeof module !== "undefined" && module.exports) module.exports=result; })(globalThis);\n');
 
 function accuracyRow(exchange, split, base, tuned) {
   return `| ${exchange} | ${split} | 기준 | ${base.signals} | ${pct(base.coverage)} | ${pct(base.accuracy)} | ${pct(base.balancedAccuracy)} | ${pct(base.longAccuracy)} | ${pct(base.shortAccuracy)} | ${pct(base.wilsonLow)}~${pct(base.wilsonHigh)} |\n`
@@ -432,10 +495,14 @@ const report = `# BTC 5년 코인분석스킬 정확도 검증
 | MEXC | BTC_USDT USDT perpetual | ${mexcPayload.quality.first} ~ ${mexcPayload.quality.last} | ${mexcPayload.quality.rows} | ${mexcPayload.quality.coveragePct.toFixed(4)}% | ${mexcPayload.quality.missingHours} | ${mexcPayload.quality.invalidOhlc} | ${mexcPayload.quality.zeroVolume} |
 
 MEXC 누락이 포함된 불완전 4H·12H·1D 봉은 보간하지 않고 제외했다.
+미래 평가 구간에 누락이 있거나 필요한 최신 상위 봉이 없으면 해당 판정을 제외했다. 각 학습·검증·시험 구간 끝의 최대 24H 평가가 다음 구간을 침범하지 않도록 제거했다.
+
+입력 SHA-256: Binance ${binancePayload.sha256}, MEXC ${mexcPayload.sha256}
 
 ## 방향 정확도
 
 판정은 매 4H 확정 시점, 목표는 이후 12H 종가 방향이다. 정확도는 신호 표본만, 커버리지는 전체 판정 가능 시점 중 신호 비율이다.
+균형 정확도는 실제 상승·하락별 재현율의 평균이다. 기존 롱·숏 적중률 평균은 JSON의 directionPrecisionMean으로 구분한다. 가격 불변은 방향 적중 실패이며 상승·하락 재현율 분모에서는 제외한다.
 
 | 거래소 | 구간 | 규칙 | 신호 수 | 커버리지 | 정확도 | 균형 정확도 | 롱 | 숏 | 정확도 95% CI |
 |---|---|---|---:|---:|---:|---:|---:|---:|---:|
@@ -460,7 +527,7 @@ ${['4h','12h','24h'].map(h => `| ${h} | ${pct(horizonDiagnostics[h].binanceTestT
 
 - 신호 다음 1H 시가 진입, 12H 시점 종가 청산
 - 한 번에 한 포지션
-- 왕복 수수료·슬리피지 합계 0.12% 가정
+- 진입·청산 명목가 각각 수수료 0.04%와 슬리피지 0.02% 차감(진입가와 청산가가 같으면 합계 0.12%)
 
 | 구간 | 거래 | 순승률 | 거래당 순기대수익 | Profit Factor | 누적수익 기준 최대 낙폭 |
 |---|---:|---:|---:|---:|---:|
@@ -475,8 +542,8 @@ ${fixedStrategyRow('MEXC 전체 후보', fixedHorizonStrategy.mexc_all_selected)
 
 - 신호 다음 1H 시가 진입
 - 4H ATR(14)의 1.5배 손절, 목표 1.5R, 최대 24H 보유
-- 한 번에 한 포지션, 목표·손절 동시 접촉 시 손절 우선
-- 왕복 수수료·슬리피지 합계 0.12% 가정
+- 한 번에 한 포지션, 목표·손절 동시 접촉 시 손절 우선. 손절가를 넘긴 갭은 불리한 시가 적용
+- 진입·청산 명목가 각각 수수료 0.04%와 슬리피지 0.02% 차감
 
 | 구간 | 거래 | 순승률 | 거래당 기대값 | Profit Factor | 최대 낙폭 |
 |---|---:|---:|---:|---:|---:|
@@ -493,6 +560,9 @@ ${strategyRow('MEXC 전체 후보', strategy.mexc_all_selected)}
 - 4H마다 반복되는 12H 방향 표본은 일부 겹친다. 95% 구간은 단순 이항 기준이며 시계열 자기상관을 완전히 보정하지 않는다.
 - 실제 체결은 호가 깊이, 주문 유형, 펀딩비에 따라 달라진다. 여기서는 공통 비용 가정으로 규칙만 비교했다.
 - 단일 자산·단일 5년 구간 결과를 다른 코인이나 미래 시장의 승률로 일반화할 수 없다.
+- 이 기간은 과거에 반복 검증한 자료를 포함한다. 완전히 새로운 미관측 데이터 시험이 아니며 다수 후보 비교에 따른 선택 편향도 남는다.
+- 최대 낙폭은 청산 손익의 단순 누적 기준이다. 미실현 손익·복리·레버리지·잔고 제한을 반영한 실제 계좌 낙폭이 아니다.
+- 이번 평가는 4개 시간봉 점수 기반 BTC 방향 후보와 표준화 전략이다. 표시용 VPVR·지지저항·파동 각각의 성공률을 검증한 결과는 아니다.
 
 ## 공식 데이터 출처
 
@@ -515,3 +585,8 @@ console.table([
   { 구간: 'MEXC 전체 기준', 신호: mexcBaseline.all.signals, 커버리지: pct(mexcBaseline.all.coverage), 균형정확도: pct(mexcBaseline.all.balancedAccuracy) },
   { 구간: 'MEXC 전체 후보', 신호: mexcSelected.all.signals, 커버리지: pct(mexcSelected.all.coverage), 균형정확도: pct(mexcSelected.all.balancedAccuracy) }
 ]);
+}
+
+// 회귀 테스트에서 순수 함수를 불러올 때 5년 전체 실행을 시작하지 않는다.
+export { 집계, 특징생성, 정확도, 구간, 전략, 고정12H전략 };
+if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) main();

@@ -7,22 +7,9 @@
 (function (global) {
   "use strict";
 
-  /**
-   * 2021-08-30~2026-08-30 BTC 교차 거래소 워크포워드 검증 결과.
-   * 방향 적중률은 개선됐지만 비용 반영 기대값이 음수여서 매매 신호로 채택하지 않았다.
-   */
-  var CALIBRATION = {
-    version: "BTC-5Y-20260831",
-    asset: "BTC",
-    horizon: "12h",
-    binanceTestAccuracyPct: 55.52,
-    binanceTestWilson95Pct: [50.09, 60.82],
-    mexcAllAccuracyPct: 52.69,
-    mexcAllWilson95Pct: [50.21, 55.16],
-    binanceNetExpectancyPct: -0.169,
-    mexcNetExpectancyPct: -0.198,
-    actionable: false
-  };
+  // 수동으로 과거 승률을 복사하지 않고 백테스트가 생성한 동일 근거를 사용한다.
+  var CALIBRATION = typeof module !== "undefined" && module.exports
+    ? require('./backtest_results/calibration.js') : global.ClaudeChartBacktest || null;
 
   function 숫자(v) { return typeof v === "number" && isFinite(v); }
 
@@ -224,11 +211,12 @@
     var ma20 = sma(closes, 20), ma50 = sma(closes, 50), ma200 = sma(closes, 200);
     var vol20 = data.slice(-21, -1).reduce(function (sum, c) { return sum + c.volume; }, 0) / 20;
     var score = 0;
-    if (ma20 !== null) score += last.close > ma20 ? 1 : -1;
-    if (ma50 !== null) score += last.close > ma50 ? 1 : -1;
-    if (ma20 !== null && ma50 !== null) score += ma20 > ma50 ? 1 : -1;
-    if (a) score += a.plusDI > a.minusDI ? 1 : -1;
-    if (m) score += m.hist > 0 ? 1 : -1;
+    // 같은 값은 하락 근거가 아니다. 완전 횡보에서 인위적인 약세 점수가 쌓이지 않게 한다.
+    if (ma20 !== null) score += Math.sign(last.close - ma20);
+    if (ma50 !== null) score += Math.sign(last.close - ma50);
+    if (ma20 !== null && ma50 !== null) score += Math.sign(ma20 - ma50);
+    if (a) score += Math.sign(a.plusDI - a.minusDI);
+    if (m) score += Math.sign(m.hist);
     if (st) score += st.direction === "상승" ? 1 : -1;
     var direction = score >= 3 ? "강세" : score <= -3 ? "약세" : "중립";
     return {
@@ -293,7 +281,9 @@
       status: "관망",
       actionable: false,
       horizon: "12H",
-      reason: "5년 교차 검증에서 방향 적중률은 개선됐지만 수수료·슬리피지 반영 기대값이 음수여서 매매 전망으로 채택하지 않음",
+      reason: !CALIBRATION ? "백테스트 근거를 불러오지 못해 관망"
+        : CALIBRATION.binanceNetExpectancyPct < 0 ? "BTC 과거 검증에서 수수료·슬리피지 반영 기대값이 음수여서 매매 전망으로 채택하지 않음"
+        : "BTC 과거 검증은 참고용이며 미래 수익을 보장하지 않아 실거래 전망은 관망 유지",
       calibration: CALIBRATION
     } : {
       status: "관망",
@@ -312,7 +302,7 @@
   }
 
   global.MarketAnalyzer = {
-    VERSION: "3.2.1",
+    VERSION: "3.2.2",
     CALIBRATION: CALIBRATION,
     confirmedCandles: 확정봉,
     rsi: rsi,
