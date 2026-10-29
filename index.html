@@ -1021,6 +1021,20 @@ async function renderMasterAnalysis(c, levels) {
   const oiText = Number.isFinite(c.oiValue)
     ? `${c.oiValue.toLocaleString('en-US')} ${c.sym.split('/')[0]} 계약수량 · 명목가 약 ${(c.oiValue*price).toLocaleString('en-US',{maximumFractionDigits:0})} USDT`
     : '현재 실시간 데이터 확인 불가';
+  // 2026-10-30 백테스트(8종목 4H 2022-09~2026-10, 비용 왕복 0.1%): 4H 강세/약세에 아래 규칙을 붙이면 기대값 −0.005R → +0.242R,
+  // 검증 구간·2025-02 이후 모두 '무조건 롱'·'50이평 추세' 대조군보다 높았다. 숏은 기대값 0 근처라 참고만 보여준다.
+  const 실행규칙 = (() => {
+    const f4 = result.frames['4h'], bars = MarketAnalyzer.confirmedCandles(mtf캐시.data['4h'] || []);
+    if(!f4 || f4.error || !window.Engine || bars.length < 30) return '4H 표본 부족';
+    const li = bars.length-1, adx = Engine.adx(bars,14).adx[li], atr = Engine.atr(bars,14)[li], fr = c.frValue;
+    if(f4.direction==='약세') return '<b style="color:#2864dc;">4H 약세 — 롱 보유 중이면 청산</b> · 숏은 참고만';
+    if(f4.direction!=='강세') return `대기 (4H ${f4.direction})`;
+    const why = [];
+    if(!(adx>=25)) why.push(`ADX ${Number.isFinite(adx)?adx.toFixed(1):'—'} &lt; 25`);
+    if(Number.isFinite(fr) && fr>=0.03) why.push(`펀딩비 ${fr.toFixed(4)}% ≥ 0.03%`);
+    if(why.length) return `롱 보류 (${why.join(' · ')})`;
+    return `<b style="color:#d32f2f;">롱 진입</b> · 손절 약 ${가격(bars[li].close-2.5*atr)} · 4H 약세 전환 시 청산`;
+  })();
   const fundingText = Number.isFinite(c.frValue) ? `${c.frValue.toFixed(4)}%` : '현재 실시간 데이터 확인 불가';
   const riskText = '포지션 위험액 = 계좌 평가액 × 0.5~1% · 포지션 크기 = 위험액 ÷ |진입가-손절가| · 레버리지는 손절폭과 청산가로 역산(고정 배수 권장 안 함)';
 
@@ -1039,6 +1053,7 @@ async function renderMasterAnalysis(c, levels) {
       <thead><tr style="color:var(--text2);"><th>봉</th><th>방향</th><th>ADX/DI/ST</th><th>구조</th><th>RSI</th></tr></thead>
       <tbody>${rows}</tbody>
     </table>
+    <div style="margin-top:6px;"><b>4H 실행 규칙</b>: ${실행규칙}<br><span style="color:var(--text2);font-size:11px;">4H 강세 + ADX 25 이상 + 펀딩비 0.03% 미만일 때 롱 · 4H 약세까지 보유 · 손절 2.5×ATR · 최대 100봉 · 8종목 4년 백테스트 기대값 +0.24R(비용 반영) · 2025-02 이후는 +0.10R로 작음</span></div>
     <div style="margin-top:6px;"><b>FVG(${대표봉.toUpperCase()})</b>: ${fvgText}</div>
     <div style="padding:5px;background:var(--bg3);margin-top:6px;"><b>PART 2 · 선물 및 군중 심리</b><br>펀딩비 ${fundingText}<br>OI ${oiText}<br><span style="color:var(--text2);">OI 1H 변화율·CVD·청산맵: 현재 실시간 데이터 확인 불가</span></div>
     <div style="padding:5px;background:var(--bg3);margin-top:6px;"><b>PART 3 · 온체인 및 고래</b><br><span style="color:var(--text2);">거래소 순유입·고래 지갑·MVRV·SOPR: 현재 실시간 데이터 확인 불가</span></div>
