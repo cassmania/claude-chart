@@ -36,7 +36,8 @@
     (c._indSeries || []).forEach(s => { try { c.MC.removeSeries(s); } catch (e) {} });
     (c._indLines || []).forEach(l => { try { c.CS.removePriceLine(l); } catch (e) {} });
     c._indSeries = []; c._indLines = [];
-    try { c.CS.setMarkers([]); } catch (e) {}
+    c._indMarks = false;
+    try { window.TradeMarks ? TradeMarks.applyTradeMarks(c.CS, c._tm || [], c.candles) : c.CS.setMarkers([]); } catch (e) {}
   }
 
   function 통계문구(st) {
@@ -148,7 +149,9 @@
     if (v.pending) ms.push({ time: bars[bars.length - 1].time, position: "aboveBar", shape: "circle", color: COL.accent,
       text: v.pending.type === "exit" ? "청산 대기" : 방향(v.pending.dir) + " 대기" });
     ms.sort((x, y) => x.time - y.time);
-    c.CS.setMarkers(ms);
+    // 자동이면 추세 합의 타점, 특정 지표를 고르면 그 지표 타점 — 글자는 겹치지 않게 빈 자리에
+    c._indMarks = !v.auto;
+    if (window.TradeMarks) TradeMarks.applyTradeMarks(c.CS, v.auto ? (c._tm || []) : ms, bars); else c.CS.setMarkers(ms);
 
     let lv = null;
     const atr = a.context.atr || 0;

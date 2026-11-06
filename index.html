@@ -14,8 +14,10 @@
 <script src="v41_analyzer.js?v=4.1.0" charset="utf-8"></script>
 <script src="chart_state.js?v=1.0.0" charset="utf-8"></script>
 <script src="indicator_engine.js?v=1" charset="utf-8"></script>
+<script src="custom.js?v=1" charset="utf-8"></script>
+<script src="trade-marks.js?v=1" charset="utf-8"></script>
 <!-- defer: 문서 파싱(인라인 앱 스크립트 실행) 뒤에 실행돼 charts·activeChartIdx를 쓸 수 있다 -->
-<script src="indicator_panel.js?v=1" charset="utf-8" defer></script>
+<script src="indicator_panel.js?v=2" charset="utf-8" defer></script>
 <style>
 :root{
   /* Claude 팔레트 — 크림 배경 + 클레이 포인트. 상승 빨강·하락 파랑(한국식) 관례는 유지 */
@@ -525,6 +527,9 @@ class ChartInstance {
   renderAll() {
     if(!this.candles.length) return;
     this.CS.setData(this.candles.map(c=>({time:c.time,open:c.open,high:c.high,low:c.low,close:c.close})));
+    // 매수·매도·롱·숏 타점(추세 합의 거래 기록, 글자는 빈 자리에) — 보조지표 패널이 특정 지표를 고르면 그 마커로 바뀜
+    this._tm = window.TradeMarks ? TradeMarks.tradeMarkers(this.candles) : [];
+    if (window.TradeMarks && !this._indMarks) TradeMarks.applyTradeMarks(this.CS, this._tm, this.candles);
     // 지표는 trading-chart 엔진 함수로 계산한다(와일더 RSI, SMA 시드 EMA, 표준 슈퍼트렌드).
     // 이전 RSI는 단순평균 방식이라 바이낸스·트레이딩뷰 값과 달랐다.
     const E = Engine, bars = this.candles, c = bars.map(x=>x.close), t = bars.map(x=>x.time);
