@@ -15,6 +15,9 @@
 <script src="chart_state.js?v=1.0.0" charset="utf-8"></script>
 <script src="indicator_engine.js?v=1" charset="utf-8"></script>
 <script src="custom.js?v=1" charset="utf-8"></script>
+<script src="indicator-audit.js?v=1" charset="utf-8"></script>
+<script src="analysis-engine.js?v=1" charset="utf-8"></script>
+<script src="signal-judge.js?v=1" charset="utf-8"></script>
 <script src="trade-marks.js?v=1" charset="utf-8"></script>
 <!-- defer: 문서 파싱(인라인 앱 스크립트 실행) 뒤에 실행돼 charts·activeChartIdx를 쓸 수 있다 -->
 <script src="indicator_panel.js?v=2" charset="utf-8" defer></script>
@@ -185,6 +188,7 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:'Inter'
             <div class="ind-osc"><span id="ind-osc-head" class="ind-osc-head"></span><div id="ind-osc"></div></div>
             <div id="ind-card" class="ind-card"><span class="ind-dim">차트 데이터를 기다리는 중…</span></div>
           </div>
+          <div class="sj sj-stack" id="judge" aria-label="검증된 신호 요약"></div>
           <div id="algoResults">
             <div class="ai-msg sys">차트 데이터가 로딩되면 분석이 시작됩니다...</div>
           </div>
@@ -739,6 +743,8 @@ function runLocalAnalysis(idx = null) {
   if (idx !== null) activeChartIdx = idx;
   const c = charts[activeChartIdx] || charts[0];
   if(!c || !c.candles.length) return;
+  // 검증된 신호 요약(방향 점수·실행 규칙·신뢰도) — signal-judge.js, 숫자는 indicator-audit.js
+  if (window.SignalJudge) SignalJudge.render(document.getElementById('judge'), c.candles, { symbol: c.sym, tf: c.tf, digits: c.dp(), extra: [['4H 실행 규칙(강세 + ADX 25)', '참고용'], ['AI 분석 · 지지저항', '참고용']] });
   
   const target = document.getElementById('algoResults');
   
